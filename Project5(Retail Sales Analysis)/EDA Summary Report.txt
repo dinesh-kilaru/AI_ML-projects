@@ -1,0 +1,25 @@
+# EDA Summary Report
+
+## Data Cleaning
+- Checked missing values
+- Removed duplicates
+- Treated outliers
+
+## Statistical Analysis
+- Mean
+- Median
+- Mode
+- Variance
+- Standard Deviation
+
+## Analysis
+- Region-wise sales
+- Category-wise sales
+
+## Key Findings
+- Sales vary across regions.
+- Different categories contribute differently to sales.
+- Outliers were detected and handled.
+
+## Conclusion
+EDA helped understand sales patterns and supported better business insights.
