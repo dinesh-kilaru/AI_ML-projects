@@ -1,0 +1,16 @@
+Exploratory Data Analysis (EDA) Summary
+
+
+Dataset Overview
+The dataset contains 545 entries with 13 columns, including numerical and object (categorical) types.
+No missing values were identified, ensuring data quality for analysis.
+Numerical Feature Analysis
+Price: Ranges from 1.75 million to 13.3 million, with a mean of 4.77 million and a median of 4.34 million, indicating a slight positive skew. High variance (3.5e+12) and standard deviation (1.87 million) suggest a wide distribution of prices.
+Area: Ranges from 1650 to 16200 sq.ft., with a mean of 5150 sq.ft. and median of 4600 sq.ft., also showing a positive skew. Variance (4.7e+06) and standard deviation (2170 sq.ft.) indicate significant spread.
+Other numerical features (bedrooms, bathrooms, stories, parking) show typical ranges for housing data, with bathrooms having a higher skewness.
+Outlier Detection
+Box plots revealed significant outliers, particularly in price and area, suggesting potential high-value properties or data entry anomalies. These outliers were not explicitly handled in the modeling phase but were noted.
+Correlation Analysis
+A heatmap and correlation values with 'price' were generated:
+price shows the strongest positive correlation with area (0.54), bathrooms (0.52), stories (0.42), parking (0.38), and bedrooms (0.37).
+These correlations indicate that larger areas, more bathrooms, more stories, and parking facilities generally lead to higher prices.
