@@ -1,0 +1,16 @@
+Medium EDA Summary:
+
+The initial exploration of the passenger data.csv dataset, comprising 418 entries, revealed several characteristics. Notably, Age, Fare, and Cabin columns contained missing values. Age was imputed with its median, Embarked with its mode, and Cabin with a placeholder 'Unknown'.
+
+Outlier detection using the Interquartile Range (IQR) method was applied to the Fare column, leading to the removal of certain extreme values and a reduction in the dataset size to 362 entries. No duplicate rows were found after this step.
+
+Key observations from the visualizations include:
+
+A higher number of passengers did not survive compared to those who did, as shown by the Survived count plot.
+Passenger Class (Pclass) showed a significant relationship with survival, with Pclass 3 having the most non-survivors and Pclass 1 showing a relatively better survival rate.
+Gender (Sex) was a strong predictor of survival, with a considerably higher proportion of females surviving than males.
+The age distribution was skewed towards younger adults, peaking around the late 20s.
+No clear linear relationship was observed between Age and Fare from the scatter plot.
+For machine learning preparation, categorical features (Sex, Embarked) were transformed using Label Encoding, and numerical features (Age, Fare) were scaled using StandardScaler to normalize their ranges. Irrelevant columns like PassengerId, Name, Ticket, and Cabin were dropped to focus on features relevant for prediction.
+
+Finally, Logistic Regression and Decision Tree Classifier models were trained and evaluated. Both models achieved an accuracy of 1.0 on the test set, indicating perfect classification for the given split and processed data. This high accuracy might suggest excellent feature engineering or could potentially point to overfitting, which would typically require further validation like cross-validation or a larger, more diverse dataset.
