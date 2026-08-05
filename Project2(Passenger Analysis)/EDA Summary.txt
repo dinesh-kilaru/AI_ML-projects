@@ -1,0 +1,35 @@
+## EDA Summary
+
+Based on the performed Exploratory Data Analysis, here are the key insights:
+
+### Data Overview:
+- The dataset contains 418 entries and 12 columns.
+- Columns include `PassengerId`, `Survived`, `Pclass`, `Name`, `Sex`, `Age`, `SibSp`, `Parch`, `Ticket`, `Fare`, `Cabin`, and `Embarked`.
+
+### Missing Values:
+- `Age` has 86 missing values (approximately 20.6% of the data).
+- `Fare` has 1 missing value.
+- `Cabin` has a significant number of missing values (327 out of 418, approximately 78.2%), which might indicate it's not a strong feature or requires advanced imputation.
+
+### Duplicates:
+- There are no duplicate rows in the dataset.
+
+### Age Distribution:
+- The `Age` distribution shows a concentration of passengers in their 20s and 30s. The median age is around 27 years.
+- After imputation and outlier capping, the descriptive statistics for `Age` were adjusted.
+
+### Fare Distribution:
+- The `Fare` distribution is right-skewed, with many passengers paying lower fares and a few paying very high fares.
+- A scatter plot of `Age` vs `Fare` shows a wide spread, with no immediately obvious strong linear correlation, but some high fares are paid by passengers across various age groups.
+
+### Class (Pclass) Distribution:
+- The majority of passengers are in `Pclass` 3, followed by `Pclass` 1, and then `Pclass` 2.
+
+### Gender Distribution:
+- There are more male passengers than female passengers in the dataset.
+
+### Survival Rates:
+- **Overall Survival Rate:** Approximately 36.4% of passengers survived.
+- **Survival by Sex:** All females in this particular dataset (tested.csv) show a 100% survival rate, while all males show a 0% survival rate. This is an unusual finding for a test dataset and suggests that the 'Survived' column in `tested.csv` might be a placeholder or does not reflect actual survival probabilities as in the training set.
+- **Survival by Pclass:** `Pclass` 1 has the highest survival rate (46.7%), followed by `Pclass` 3 (33.0%), and `Pclass` 2 (32.3%).
+- **Survival by Sex and Pclass:** This breakdown further emphasizes the disparity, with all females across all classes surviving and all males across all classes not surviving in this specific dataset.
