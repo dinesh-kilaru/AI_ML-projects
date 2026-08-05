@@ -1,0 +1,20 @@
+## EDA Summary
+
+### 1. Data Overview
+- The dataset contains 395 entries and 33 columns.
+- It includes a mix of numerical (16 columns) and categorical (17 columns) features.
+
+### 2. Data Quality (Missing Values & Duplicates)
+- No missing values were found across any of the columns, as confirmed by `df.isnull().sum()`.
+- No duplicate rows were found in the dataset, as confirmed by `df.duplicated().sum()`.
+
+### 3. Key Observations
+- **Age Distribution**: The `age` distribution shows that most students are between 15 and 18 years old, with fewer students in the older age groups (19-22).
+- **School Distribution**: The dataset is heavily skewed towards one school ('GP'), which has significantly more students (349) compared to the other school ('MS') (46).
+- **Father's Education vs. Age**: The scatter plot of `Fedu` (father's education) against `age` shows a clustered pattern, indicating that father's education levels are spread across all age groups, with most students having fathers with education levels of 2, 3, or 4.
+- **Correlation Matrix**: The heatmap of numerical features reveals some interesting correlations:
+  - `G1`, `G2`, and `G3` (first, second, and final grades) are highly positively correlated with each other, as expected.
+  - `Medu` (mother's education) and `Fedu` (father's education) are positively correlated.
+  - `failures` shows a negative correlation with `G1`, `G2`, and `G3`, suggesting that students with more past failures tend to have lower grades.
+  - `Walc` (weekend alcohol consumption) and `Dalc` (workday alcohol consumption) are positively correlated.
+  - `freetime` and `goout` (going out with friends) show a positive correlation.
