@@ -1,0 +1,45 @@
+CUSTOMER CHURN PREDICTION - PROJECT REPORT
+
+WHAT THIS PROJECT IS ABOUT
+
+This project tries to guess which customers of a telecom company will leave
+(churn) and which will stay. The idea is simple: if we know who might leave,
+the company can try to keep them before it's too late.
+
+THE DATA
+
+I used a telecom customer dataset with 7043 customers and details like gender, contract type, monthly charges, internet service,
+tenure (how long they've been a customer), and whether they churned or not.
+
+Total 7043 customers:
+- 5174 stayed
+- 1869 left (churned)
+
+STEPS I FOLLOWED
+
+1. Loaded the data and checked it for missing values and duplicates.
+2. Explored the data with simple charts - churn counts, monthly charges
+   distribution, and a correlation heatmap to see how numbers relate.
+3. Removed outliers in Monthly Charges using the IQR method.
+4. Converted text columns (like gender)into numbers so
+   the model can understand them.
+5. Scaled Monthly Charges and Total Charges so all numbers are on a
+   similar range.
+6. Split the data into training and testing sets (80% train, 20% test).
+7. Trained four different models to compare which works best.
+
+MODELS TRIED AND RESULTS:
+Model                     Accuracy
+Logistic Regression       82.2%
+Random Forest             79.2%
+Decision Tree             71.8%
+KNN                       76.8%
+
+BEST MODEL
+
+Logistic Regression gave the best accuracy at about 82%. It was saved as a file (lr_model.pkl) so it can be reused later without retraining.
+
+WHAT THIS MEANS
+
+The model can predict, with decent accuracy, whether a customer is likely to leave. This can help to focus on customers who are about to churn and act fast to keep them.
+
