@@ -120,7 +120,7 @@ with tab1:
     st.subheader("Tell us about yourself")
     age = st.number_input("Age", min_value=15, max_value=80, value=25, step=1)
 
-    education_options = list(models["education_encoder"].categories_[0])
+    education_options = list(Models["education_encoder"].categories_[0])
     education = st.selectbox("Highest education level", education_options)
 
     skill_vocab = sorted(Models["skills_vectorizer"].vocabulary_.keys())
