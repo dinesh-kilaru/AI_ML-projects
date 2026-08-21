@@ -10,6 +10,10 @@ import requests
 import joblib
 import streamlit as st
 
+def semicolon_tokenizer(text):
+    """'python;sql;machine learning' -> ['python', 'sql', 'machine learning']"""
+    return text.split(";")
+    
 # Ensure Models directory exists
 os.makedirs("Models", exist_ok=True)
 
@@ -46,9 +50,7 @@ except Exception as e:
 
 
 
-def semicolon_tokenizer(text):
-    """'python;sql;machine learning' -> ['python', 'sql', 'machine learning']"""
-    return text.split(";")
+
 
 sys.modules["__main__"].semicolon_tokenizer = semicolon_tokenizer
 sys.modules[__name__].semicolon_tokenizer = semicolon_tokenizer
