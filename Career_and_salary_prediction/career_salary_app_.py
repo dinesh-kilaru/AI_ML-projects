@@ -80,27 +80,25 @@ def build_career_features(Models, age, education, skills, interests):
 
 
 def predict_career(Models, age, education, skills_str, interests_str):
-    # Convert skills and interests into vectors
+    # Split and clean
     skills_list = [s.strip() for s in skills_str.split(";") if s.strip()]
     interests_list = [i.strip() for i in interests_str.split(";") if i.strip()]
 
-    skills_vec = Models["skills_vectorizer"].transform([skills_list])  # shape (1, vocab_size)
-    interests_vec = Models["interests_vectorizer"].transform([interests_list])  # shape (1, vocab_size)
+    # Vectorize as strings, not lists
+    skills_vec = Models["skills_vectorizer"].transform([";".join(skills_list)])
+    interests_vec = Models["interests_vectorizer"].transform([";".join(interests_list)])
 
     # Encode education
     edu_encoded = Models["education_encoder"].transform([[education]])[0][0]
 
     # Numerical features
-    numerical_features = np.array([[age, edu_encoded]])  # shape (1, 2)
+    numerical_features = np.array([[age, edu_encoded]])
 
-    # Concatenate everything into a single feature vector
+    # Concatenate everything
     from scipy.sparse import hstack
-    X_new = hstack([numerical_features, skills_vec, interests_vec])
+    X_new = hstack([numerical_features, skills_vec, interests_vec]).toarray()
 
-    # Ensure dense array if model doesn’t accept sparse
-    X_new = X_new.toarray()
-
-    # Now predict probabilities
+    # Predict probabilities
     probabilities = Models["career_recommendation_model"].predict_proba(X_new)[0]
 
     ranked = sorted(
