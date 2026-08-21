@@ -261,11 +261,11 @@ with tab2:
             salary = predict_salary(Models, years, education_level, job_role, location)
             if period == "Annual":
                 st.success(
-                    f"Predicted salary:${dollar} ${salary:,.2f} / year "
-                    f"(≈ ${dollar} ${salary / 12:,.2f} / month)"
+                    f"Predicted salary: ${dollar}${salary:,.2f} / year "
+                    f"(≈  ${dollar} ${salary / 12:,.2f} / month)"
                 )
             else:
                 st.success(
-                    f"Predicted salary: ${salary:,.2f} / month "
-                    f"(≈ ${salary * 12:,.2f} / year)"
+                    f"Predicted salary: ${dollar}${salary:,.2f} / month "
+                    f"(≈ ${dollar}${salary * 12:,.2f} / year)"
                 )
