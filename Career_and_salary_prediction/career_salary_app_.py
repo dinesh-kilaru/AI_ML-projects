@@ -84,18 +84,18 @@ def predict_career(Models, age, education, skills_str, interests_str):
     skills_list = [s.strip() for s in skills_str.split(";") if s.strip()]
     interests_list = [i.strip() for i in interests_str.split(";") if i.strip()]
 
-    # Vectorize as strings, not lists
+    # Vectorize as strings
     skills_vec = Models["skills_vectorizer"].transform([";".join(skills_list)])
     interests_vec = Models["interests_vectorizer"].transform([";".join(interests_list)])
 
     # Encode education
     edu_encoded = Models["education_encoder"].transform([[education]])[0][0]
 
-    # Numerical features
-    numerical_features = np.array([[age, edu_encoded]])
+    # Convert numerical features to sparse
+    from scipy.sparse import csr_matrix, hstack
+    numerical_features = csr_matrix(np.array([[age, edu_encoded]]))
 
     # Concatenate everything
-    from scipy.sparse import hstack
     X_new = hstack([numerical_features, skills_vec, interests_vec]).toarray()
 
     # Predict probabilities
@@ -107,6 +107,7 @@ def predict_career(Models, age, education, skills_str, interests_str):
     )
     top_career = ranked[0][0]
     return top_career, ranked
+
 
 
 
