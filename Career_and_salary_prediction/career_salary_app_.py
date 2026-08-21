@@ -79,27 +79,86 @@ def build_career_features(Models, age, education, skills, interests):
     )
 
 
-def predict_career(Models, age, education, skills_str, interests_str):
+import numpy as np
+from scipy.sparse import csr_matrix, hstack
+
+def predict_career(Models, age, education, skills_str, interests_str, debug=False):
+    # Clean inputs
     skills_list = [s.strip() for s in skills_str.split(";") if s.strip()]
     interests_list = [i.strip() for i in interests_str.split(";") if i.strip()]
 
-    skills_vec = Models["skills_vectorizer"].transform([";".join(skills_list)])
-    interests_vec = Models["interests_vectorizer"].transform([";".join(interests_list)])
+    # Vectorize text fields (vectorizers expect strings)
+    skills_vec = Models["skills_vectorizer"].transform([";".join(skills_list)])  # sparse (1, V1)
+    interests_vec = Models["interests_vectorizer"].transform([";".join(interests_list)])  # sparse (1, V2)
 
+    # Encode education: could be scalar (LabelEncoder) or vector (OneHotEncoder)
     edu_encoded = Models["education_encoder"].transform([[education]])
-    edu_encoded_scalar = edu_encoded[0][0]  # ✅ safe scalar extraction
+    # edu_encoded might be numpy array or sparse matrix
+    if hasattr(edu_encoded, "toarray"):
+        edu_arr = edu_encoded.toarray()
+    else:
+        edu_arr = np.asarray(edu_encoded)
 
-    from scipy.sparse import csr_matrix, hstack
-    numerical_features = csr_matrix([[float(age), float(edu_encoded_scalar)]])
+    # Decide how to treat education: scalar or vector
+    if edu_arr.size == 1:
+        edu_scalar = float(edu_arr.ravel()[0])
+        edu_sparse = csr_matrix([[edu_scalar]])  # shape (1,1)
+    else:
+        # multi-column encoding: convert to sparse row
+        edu_sparse = csr_matrix(edu_arr)  # shape (1, n_edu_cols)
 
-    X_new = hstack([numerical_features, skills_vec, interests_vec]).toarray()
+    # Ensure age is a scalar number
+    try:
+        age_scalar = float(age)
+    except Exception:
+        # fallback: if age is array-like, extract first element
+        age_scalar = float(np.asarray(age).ravel()[0])
 
-    probabilities = Models["career_recommendation_model"].predict_proba(X_new)[0]
+    age_sparse = csr_matrix([[age_scalar]])  # shape (1,1)
 
-    ranked = sorted(
-        zip(Models["career_label_encoder"].classes_, probabilities),
-        key=lambda x: -x[1]
-    )
+    # Concatenate numerical + education + text vectors
+    # Order must match training: [age, education_encoding..., skills_vec..., interests_vec...]
+    X_new_sparse = hstack([age_sparse, edu_sparse, skills_vec, interests_vec])
+
+    # Convert to dense if model requires dense input
+    try:
+        # many sklearn estimators accept sparse; if not, convert
+        X_new = X_new_sparse.toarray()
+    except Exception:
+        X_new = X_new_sparse
+
+    if debug:
+        print("age_scalar:", age_scalar, type(age_scalar))
+        print("edu_arr.shape:", edu_arr.shape)
+        print("X_new shape:", getattr(X_new, "shape", None))
+        if hasattr(Models["career_recommendation_model"], "n_features_in_"):
+            print("model expects:", Models["career_recommendation_model"].n_features_in_)
+
+    # Predict probabilities (use predict_proba if available)
+    model = Models["career_recommendation_model"]
+    if hasattr(model, "predict_proba"):
+        probs = model.predict_proba(X_new)
+        probabilities = probs[0]
+    else:
+        # fallback to decision_function or predict (normalize to pseudo-prob)
+        if hasattr(model, "decision_function"):
+            scores = model.decision_function(X_new)
+            # if binary, make into two-class softmax-like probabilities
+            if scores.ndim == 1:
+                scores = np.vstack([-scores, scores]).T
+            exp = np.exp(scores - np.max(scores, axis=1, keepdims=True))
+            probabilities = (exp / exp.sum(axis=1, keepdims=True))[0]
+        else:
+            pred = model.predict(X_new)
+            # map predicted class to probability 1.0
+            classes = Models["career_label_encoder"].classes_
+            probabilities = np.zeros(len(classes))
+            idx = list(classes).index(pred[0])
+            probabilities[idx] = 1.0
+
+    # Rank careers
+    classes = Models["career_label_encoder"].classes_
+    ranked = sorted(zip(classes, probabilities), key=lambda x: -x[1])
     top_career = ranked[0][0]
     return top_career, ranked
 
