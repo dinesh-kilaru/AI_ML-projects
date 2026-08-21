@@ -184,6 +184,22 @@ def predict_salary(Models, years_experience, education_level, job_role, location
     return float(Models["salary_model"].predict(X_new)[0])
 
 
+def format_inr(amount):
+    """Format a number with Indian digit grouping, e.g. 1234567.89 -> '12,34,567.89'"""
+    is_negative = amount < 0
+    whole, _, frac = f"{abs(amount):.2f}".partition(".")
+    if len(whole) > 3:
+        last3, rest = whole[-3:], whole[:-3]
+        parts = []
+        while len(rest) > 2:
+            parts.insert(0, rest[-2:])
+            rest = rest[:-2]
+        if rest:
+            parts.insert(0, rest)
+        whole = ",".join(parts) + "," + last3
+    return f"{'-' if is_negative else ''}₹{whole}.{frac}"
+
+
 st.set_page_config(page_title="Career & Salary Predictor", layout="centered")
 st.title("Career & Salary Predictor")
 
@@ -257,14 +273,15 @@ with tab2:
         elif location_choice == "Other" and not location.strip():
             st.warning("Type a location.")
         else:
-            salary = predict_salary(Models, years, education_level, job_role, location)
+            salary = predict_salary(models, years, education_level, job_role, location)
             if period == "Annual":
-                st.success(
-                    f"Predicted salary: ${salary:,.2f} / year "
-                    f"(≈ ${salary / 12:,.2f} / month)"
-                )
+                annual, monthly = salary, salary / 12
             else:
-                st.success(
-                    f"Predicted salary: ${salary:,.2f} / month "
-                    f"(≈ ${salary * 12:,.2f} / year)"
-                )
+                monthly, annual = salary, salary * 12
+            lpa = annual / 100000
+ 
+            st.success(
+                f"Predicted salary: **{format_inr(annual)} / year "
+                f"({lpa:.2f} LPA)**\n\n"
+                f"≈ {format_inr(monthly)} / month"
+            )
