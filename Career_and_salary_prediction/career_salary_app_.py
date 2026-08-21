@@ -5,8 +5,15 @@ import pandas as pd
 import joblib
 import streamlit as st
 from scipy.sparse import hstack
+import requests, joblib
 
-salary_model = joblib.load("Models/linear_regression_salary_model.joblib")
+url = "https://your-storage-link/linear_regression_salary_model.joblib"
+r = requests.get(url)
+with open("linear_regression_salary_model.joblib", "wb") as f:
+    f.write(r.content)
+
+salary_model = joblib.load("linear_regression_salary_model.joblib")
+
 skills_vectorizer = joblib.load("Models/skills_vectorizer.pkl")
 education_encoder = joblib.load("Models/education_encoder.pkl")
 career_label_encoder_obj = joblib.load("Models/career_label_encoder.pkl")
