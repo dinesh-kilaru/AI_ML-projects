@@ -38,12 +38,13 @@ def download_if_missing(filename, url):
 
 # Download and load all models
 try:
-    salary_model = joblib.load(download_if_missing("linear_regression_salary_model.joblib", MODEL_URLS["linear_regression_salary_model.joblib"]))
-    career_recommendation_model = joblib.load(download_if_missing("career_recommendation_model.pkl", MODEL_URLS["career_recommendation_model.pkl"]))
-    career_label_encoder_obj = joblib.load(download_if_missing("career_label_encoder.pkl", MODEL_URLS["career_label_encoder.pkl"]))
-    skills_vectorizer = joblib.load(download_if_missing("skills_vectorizer.pkl", MODEL_URLS["skills_vectorizer.pkl"]))
-    education_encoder = joblib.load(download_if_missing("education_encoder.pkl", MODEL_URLS["education_encoder.pkl"]))
-    interests_vectorizer = joblib.load(download_if_missing("interests_vectorizer.pkl", MODEL_URLS["interests_vectorizer.pkl"]))
+    Models={}
+    Models[salary_model] = joblib.load(download_if_missing("linear_regression_salary_model.joblib", MODEL_URLS["linear_regression_salary_model.joblib"]))
+    Models[career_recommendation_model]= joblib.load(download_if_missing("career_recommendation_model.pkl", MODEL_URLS["career_recommendation_model.pkl"]))
+    Models[career_label_encoder_obj] = joblib.load(download_if_missing("career_label_encoder.pkl", MODEL_URLS["career_label_encoder.pkl"]))
+    Models[skills_vectorizer]= joblib.load(download_if_missing("skills_vectorizer.pkl", MODEL_URLS["skills_vectorizer.pkl"]))
+    Models[education_encoder]] = joblib.load(download_if_missing("education_encoder.pkl", MODEL_URLS["education_encoder.pkl"]))
+    Models[interests_vectorizer] = joblib.load(download_if_missing("interests_vectorizer.pkl", MODEL_URLS["interests_vectorizer.pkl"]))
 except Exception as e:
     st.error(f"Error loading models: {e}")
     st.stop()
