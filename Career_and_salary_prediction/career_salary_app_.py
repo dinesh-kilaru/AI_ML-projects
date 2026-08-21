@@ -183,50 +183,6 @@ def predict_salary(Models, years_experience, education_level, job_role, location
     )
     return float(Models["salary_model"].predict(X_new)[0])
 
-
-def format_inr(amount, assume_usd=True, usd_to_inr_rate=82.5):
-    """
-    Convert a numeric amount (default interpreted as USD) to INR and format with Indian grouping.
-    - amount: int, float, or numeric string (e.g., 1500 or "1500")
-    - assume_usd: if True, treat the input as USD and convert to INR; if False, treat input as already INR
-    - usd_to_inr_rate: conversion rate to use when assume_usd is True
-    Returns: formatted string like '₹1,23,750.00'
-    """
-    import re
-
-    # Parse numeric input
-    if isinstance(amount, str):
-        s = amount.strip()
-        # remove any non-numeric except minus and dot
-        num_str = re.sub(r"[^\d\.\-]", "", s)
-        if num_str == "" or num_str == "-" or num_str == ".":
-            raise ValueError("amount must contain a numeric value")
-        value = float(num_str)
-    else:
-        try:
-            value = float(amount)
-        except Exception:
-            raise ValueError("amount must be numeric or numeric string")
-
-    # Convert USD to INR if requested
-    if assume_usd:
-        value = value * float(usd_to_inr_rate)
-
-    # Format with Indian digit grouping
-    is_negative = value < 0
-    whole, _, frac = f"{abs(value):.2f}".partition(".")
-    if len(whole) > 3:
-        last3, rest = whole[-3:], whole[:-3]
-        parts = []
-        while len(rest) > 2:
-            parts.insert(0, rest[-2:])
-            rest = rest[:-2]
-        if rest:
-            parts.insert(0, rest)
-        whole = ",".join(parts) + "," + last3
-    return f"{'-' if is_negative else ''}₹{whole}.{frac}"
-
-
 st.set_page_config(page_title="Career & Salary Predictor", layout="centered")
 st.title("Career & Salary Predictor")
 
@@ -302,13 +258,12 @@ with tab2:
         else:
             salary = predict_salary(Models, years, education_level, job_role, location)
             if period == "Annual":
-                annual, monthly = salary, salary / 12
+                st.success(
+                    f"Predicted salary: ${salary:,.2f} / year "
+                    f"(≈ ${salary / 12:,.2f} / month)"
+                )
             else:
-                monthly, annual = salary, salary * 12
-            lpa = annual / 100000
- 
-            st.success(
-                f"Predicted salary: **{format_inr(annual)} / year "
-                f"({lpa:.2f} LPA)**\n\n"
-                f"≈ {format_inr(monthly)} / month"
-            )
+                st.success(
+                    f"Predicted salary: ${salary:,.2f} / month "
+                    f"(≈ ${salary * 12:,.2f} / year)"
+                )
