@@ -36,8 +36,6 @@ def download_if_missing(filename, url):
             f.write(r.content)
     return dest
 
-# Download and load all models
-try:
     Models={}
     Models[salary_model] = joblib.load(download_if_missing("linear_regression_salary_model.joblib", MODEL_URLS["linear_regression_salary_model.joblib"]))
     Models[career_recommendation_model]= joblib.load(download_if_missing("career_recommendation_model.pkl", MODEL_URLS["career_recommendation_model.pkl"]))
@@ -52,13 +50,6 @@ try:
     skills_vectorizer = Models["skills_vectorizer"]
     education_encoder = Models["education_encoder"]
     interests_vectorizer = Models["interests_vectorizer"]
-
-except Exception as e:
-    st.error(f"Error loading models: {e}")
-    st.stop()
-
-
-
 
 
 sys.modules["__main__"].semicolon_tokenizer = semicolon_tokenizer
