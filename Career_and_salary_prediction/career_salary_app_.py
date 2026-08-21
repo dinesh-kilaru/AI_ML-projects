@@ -273,7 +273,7 @@ with tab2:
         elif location_choice == "Other" and not location.strip():
             st.warning("Type a location.")
         else:
-            salary = predict_salary(models, years, education_level, job_role, location)
+            salary = predict_salary(Models, years, education_level, job_role, location)
             if period == "Annual":
                 annual, monthly = salary, salary / 12
             else:
