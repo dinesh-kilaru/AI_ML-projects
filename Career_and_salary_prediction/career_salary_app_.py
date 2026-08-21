@@ -6,7 +6,7 @@ import joblib
 import streamlit as st
 from scipy.sparse import hstack
 
-BASE_DIR_DEFAULT = "C:/Users/dines/OneDrive/Desktop/ry prediction"
+BASE_DIR_DEFAULT = "Models"
 
 FILES = {
     "career_model": "career_recommendation_model.pkl",
