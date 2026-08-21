@@ -80,18 +80,33 @@ def build_career_features(Models, age, education, skills, interests):
 
 
 def predict_career(Models, age, education, skills_str, interests_str):
-    # Build your feature vector X_new here...
-    X_new = ...  # however you construct it
+    # Convert skills and interests into vectors
+    skills_list = [s.strip() for s in skills_str.split(";") if s.strip()]
+    interests_list = [i.strip() for i in interests_str.split(";") if i.strip()]
 
-    # Get probability distribution from the career recommendation model
+    skills_vec = Models["skills_vectorizer"].transform([skills_list])  # shape (1, vocab_size)
+    interests_vec = Models["interests_vectorizer"].transform([interests_list])  # shape (1, vocab_size)
+
+    # Encode education
+    edu_encoded = Models["education_encoder"].transform([[education]])[0][0]
+
+    # Numerical features
+    numerical_features = np.array([[age, edu_encoded]])  # shape (1, 2)
+
+    # Concatenate everything into a single feature vector
+    from scipy.sparse import hstack
+    X_new = hstack([numerical_features, skills_vec, interests_vec])
+
+    # Ensure dense array if model doesn’t accept sparse
+    X_new = X_new.toarray()
+
+    # Now predict probabilities
     probabilities = Models["career_recommendation_model"].predict_proba(X_new)[0]
 
-    # Match probabilities with career labels
     ranked = sorted(
         zip(Models["career_label_encoder"].classes_, probabilities),
         key=lambda x: -x[1]
     )
-
     top_career = ranked[0][0]
     return top_career, ranked
 
