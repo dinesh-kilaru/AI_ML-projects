@@ -6,16 +6,12 @@ import joblib
 import streamlit as st
 from scipy.sparse import hstack
 
-BASE_DIR_DEFAULT = "Models"
+salary_model = joblib.load("Models/linear_regression_salary_model.joblib")
+skills_vectorizer = joblib.load("Models/skills_vectorizer.pkl")
+education_encoder = joblib.load("Models/education_encoder.pkl")
+career_label_encoder_obj = joblib.load("Models/career_label_encoder.pkl")
+role_skill_map_data = joblib.load("Models/interests_vectorizer.pkl")
 
-FILES = {
-    "career_model": "career_recommendation_model.pkl",
-    "career_label_encoder": "career_label_encoder.pkl",
-    "skills_vectorizer": "skills_vectorizer.pkl",
-    "interests_vectorizer": "interests_vectorizer.pkl",
-    "education_encoder": "education_encoder.pkl",
-    "salary_model": "linear_regression_salary_model.joblib",
-}
 
 
 def semicolon_tokenizer(text):
@@ -26,21 +22,12 @@ sys.modules["__main__"].semicolon_tokenizer = semicolon_tokenizer
 sys.modules[__name__].semicolon_tokenizer = semicolon_tokenizer
 
 
-EDUCATION_LEVELS = ["Bachelors", "High School", "Masters", "PhD"]
+EDUCATION_LEVELS = ["B.Tech", "High School", "M.Tech", "PhD"]
 JOB_ROLES = ["Data Scientist", "Project Manager", "Software Engineer", "Data administrator"]
 LOCATIONS = ["India", "UK", "USA","Remote"]
 _EDU_CODE = {name: i for i, name in enumerate(EDUCATION_LEVELS)}
 _ROLE_CODE = {name: i for i, name in enumerate(JOB_ROLES)}
 _LOC_CODE = {name: i for i, name in enumerate(LOCATIONS)}
-
-
-@st.cache_resource(show_spinner="Loading models...")
-def load_models(base_dir):
-    models = {}
-    for key, filename in FILES.items():
-        path = f"{base_dir}/{filename}"
-        models[key] = joblib.load(path)
-    return models
 
 
 def build_career_features(models, age, education, skills, interests):
