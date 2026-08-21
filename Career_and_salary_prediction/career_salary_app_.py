@@ -79,18 +79,22 @@ def build_career_features(Models, age, education, skills, interests):
     )
 
 
-def predict_career(Models, age, education, skills, interests, top_n=5):
-    X_new = build_career_features(Models, age, education, skills, interests)
-    prediction = Models["career_recommendation_model"].predict(X_new)
-    top_career = Models["career_label_encoder"].inverse_transform(prediction)[0]
-    prediction = Models["career_recommendation_model"].predict(X_new)[0]
+def predict_career(Models, age, education, skills_str, interests_str):
+    # Build your feature vector X_new here...
+    X_new = ...  # however you construct it
 
+    # Get probability distribution from the career recommendation model
+    probabilities = Models["career_recommendation_model"].predict_proba(X_new)[0]
+
+    # Match probabilities with career labels
     ranked = sorted(
         zip(Models["career_label_encoder"].classes_, probabilities),
-        key=lambda pair: pair[1],
-        reverse=True,
+        key=lambda x: -x[1]
     )
-    return top_career, ranked[:top_n]
+
+    top_career = ranked[0][0]
+    return top_career, ranked
+
 
 
 def _code_for(value, code_map):
