@@ -184,10 +184,37 @@ def predict_salary(Models, years_experience, education_level, job_role, location
     return float(Models["salary_model"].predict(X_new)[0])
 
 
-def format_inr(amount):
-    """Format a number with Indian digit grouping, e.g. 1234567.89 -> '12,34,567.89'"""
-    is_negative = amount < 0
-    whole, _, frac = f"{abs(amount):.2f}".partition(".")
+def format_inr(amount, assume_usd=True, usd_to_inr_rate=82.5):
+    """
+    Convert a numeric amount (default interpreted as USD) to INR and format with Indian grouping.
+    - amount: int, float, or numeric string (e.g., 1500 or "1500")
+    - assume_usd: if True, treat the input as USD and convert to INR; if False, treat input as already INR
+    - usd_to_inr_rate: conversion rate to use when assume_usd is True
+    Returns: formatted string like '₹1,23,750.00'
+    """
+    import re
+
+    # Parse numeric input
+    if isinstance(amount, str):
+        s = amount.strip()
+        # remove any non-numeric except minus and dot
+        num_str = re.sub(r"[^\d\.\-]", "", s)
+        if num_str == "" or num_str == "-" or num_str == ".":
+            raise ValueError("amount must contain a numeric value")
+        value = float(num_str)
+    else:
+        try:
+            value = float(amount)
+        except Exception:
+            raise ValueError("amount must be numeric or numeric string")
+
+    # Convert USD to INR if requested
+    if assume_usd:
+        value = value * float(usd_to_inr_rate)
+
+    # Format with Indian digit grouping
+    is_negative = value < 0
+    whole, _, frac = f"{abs(value):.2f}".partition(".")
     if len(whole) > 3:
         last3, rest = whole[-3:], whole[:-3]
         parts = []
