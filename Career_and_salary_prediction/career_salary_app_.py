@@ -183,6 +183,8 @@ def predict_salary(Models, years_experience, education_level, job_role, location
     )
     return float(Models["salary_model"].predict(X_new)[0])
 
+dollar="$"
+
 st.set_page_config(page_title="Career & Salary Predictor", layout="centered")
 st.title("Career & Salary Predictor")
 
@@ -259,8 +261,8 @@ with tab2:
             salary = predict_salary(Models, years, education_level, job_role, location)
             if period == "Annual":
                 st.success(
-                    f"Predicted salary:$ ${salary:,.2f} / year "
-                    f"(≈ $ ${salary / 12:,.2f} / month)"
+                    f"Predicted salary:${dollar} ${salary:,.2f} / year "
+                    f"(≈ ${dollar} ${salary / 12:,.2f} / month)"
                 )
             else:
                 st.success(
