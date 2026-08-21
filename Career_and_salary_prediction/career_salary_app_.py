@@ -45,6 +45,14 @@ try:
     Models[skills_vectorizer]= joblib.load(download_if_missing("skills_vectorizer.pkl", MODEL_URLS["skills_vectorizer.pkl"]))
     Models[education_encoder] = joblib.load(download_if_missing("education_encoder.pkl", MODEL_URLS["education_encoder.pkl"]))
     Models[interests_vectorizer] = joblib.load(download_if_missing("interests_vectorizer.pkl", MODEL_URLS["interests_vectorizer.pkl"]))
+    
+    salary_model = models["salary_model"]
+    career_recommendation_model = models["career_recommendation_model"]
+    career_label_encoder_obj = models["career_label_encoder"]
+    skills_vectorizer = models["skills_vectorizer"]
+    education_encoder = models["education_encoder"]
+    interests_vectorizer = models["interests_vectorizer"]
+
 except Exception as e:
     st.error(f"Error loading models: {e}")
     st.stop()
