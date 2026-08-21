@@ -89,7 +89,7 @@ def predict_career(Models, age, education, skills_str, interests_str):
     edu_encoded = Models["education_encoder"].transform([[education]])[0][0]
 
     from scipy.sparse import csr_matrix, hstack
-    numerical_features = csr_matrix([[age, edu_encoded]])  # ✅ fixed
+    numerical_features = csr_matrix([[float(age), float(edu_encoded)]])
 
     X_new = hstack([numerical_features, skills_vec, interests_vec]).toarray()
 
