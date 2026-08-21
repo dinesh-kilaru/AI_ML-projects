@@ -13,7 +13,7 @@ import streamlit as st
 def semicolon_tokenizer(text):
     """'python;sql;machine learning' -> ['python', 'sql', 'machine learning']"""
     return text.split(";")
-    
+
 # Ensure Models directory exists
 os.makedirs("Models", exist_ok=True)
 
@@ -36,20 +36,23 @@ def download_if_missing(filename, url):
             f.write(r.content)
     return dest
 
-    Models={}
-    Models[salary_model] = joblib.load(download_if_missing("linear_regression_salary_model.joblib", MODEL_URLS["linear_regression_salary_model.joblib"]))
-    Models[career_recommendation_model]= joblib.load(download_if_missing("career_recommendation_model.pkl", MODEL_URLS["career_recommendation_model.pkl"]))
-    Models[career_label_encoder_obj] = joblib.load(download_if_missing("career_label_encoder.pkl", MODEL_URLS["career_label_encoder.pkl"]))
-    Models[skills_vectorizer]= joblib.load(download_if_missing("skills_vectorizer.pkl", MODEL_URLS["skills_vectorizer.pkl"]))
-    Models[education_encoder] = joblib.load(download_if_missing("education_encoder.pkl", MODEL_URLS["education_encoder.pkl"]))
-    Models[interests_vectorizer] = joblib.load(download_if_missing("interests_vectorizer.pkl", MODEL_URLS["interests_vectorizer.pkl"]))
-    
-    salary_model = Models["salary_model"]
-    career_recommendation_model = Models["career_recommendation_model"]
-    career_label_encoder_obj = Models["career_label_encoder"]
-    skills_vectorizer = Models["skills_vectorizer"]
-    education_encoder = Models["education_encoder"]
-    interests_vectorizer = Models["interests_vectorizer"]
+# Define dictionary with string keys
+Models={}
+Models["salary_model"] = joblib.load(download_if_missing("linear_regression_salary_model.joblib", MODEL_URLS["linear_regression_salary_model.joblib"]))
+Models["career_recommendation_model"] = joblib.load(download_if_missing("career_recommendation_model.pkl", MODEL_URLS["career_recommendation_model.pkl"]))
+Models["career_label_encoder"] = joblib.load(download_if_missing("career_label_encoder.pkl", MODEL_URLS["career_label_encoder.pkl"]))
+Models["skills_vectorizer"] = joblib.load(download_if_missing("skills_vectorizer.pkl", MODEL_URLS["skills_vectorizer.pkl"]))
+Models["education_encoder"] = joblib.load(download_if_missing("education_encoder.pkl", MODEL_URLS["education_encoder.pkl"]))
+Models["interests_vectorizer"] = joblib.load(download_if_missing("interests_vectorizer.pkl", MODEL_URLS["interests_vectorizer.pkl"]))
+
+# Optional: assign back to variables if your code expects them
+salary_model = Models["salary_model"]
+career_recommendation_model = Models["career_recommendation_model"]
+career_label_encoder_obj = Models["career_label_encoder"]
+skills_vectorizer = Models["skills_vectorizer"]
+education_encoder = Models["education_encoder"]
+interests_vectorizer = Models["interests_vectorizer"]
+
 
 
 sys.modules["__main__"].semicolon_tokenizer = semicolon_tokenizer
