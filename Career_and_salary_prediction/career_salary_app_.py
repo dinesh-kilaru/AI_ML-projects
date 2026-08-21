@@ -30,25 +30,25 @@ _ROLE_CODE = {name: i for i, name in enumerate(JOB_ROLES)}
 _LOC_CODE = {name: i for i, name in enumerate(LOCATIONS)}
 
 
-def build_career_features(models, age, education, skills, interests):
+def build_career_features(Models, age, education, skills, interests):
     age_features = np.array([[age]])
-    education_features = models["education_encoder"].transform(
+    education_features = Models["education_encoder"].transform(
         pd.DataFrame({"Education": [education]})
     )
-    skills_features = models["skills_vectorizer"].transform([skills])
-    interests_features = models["interests_vectorizer"].transform([interests])
+    skills_features = Models["skills_vectorizer"].transform([skills])
+    interests_features = Models["interests_vectorizer"].transform([interests])
     return hstack(
         [age_features, education_features, skills_features, interests_features]
     )
 
 
-def predict_career(models, age, education, skills, interests, top_n=5):
-    X_new = build_career_features(models, age, education, skills, interests)
-    prediction = models["career_model"].predict(X_new)
-    top_career = models["career_label_encoder"].inverse_transform(prediction)[0]
-    probabilities = models["career_model"].predict_proba(X_new)[0]
+def predict_career(Models, age, education, skills, interests, top_n=5):
+    X_new = build_career_features(Models, age, education, skills, interests)
+    prediction = Models["career_model"].predict(X_new)
+    top_career = Models["career_label_encoder"].inverse_transform(prediction)[0]
+    probabilities = Models["career_model"].predict_proba(X_new)[0]
     ranked = sorted(
-        zip(models["career_label_encoder"].classes_, probabilities),
+        zip(Models["career_label_encoder"].classes_, probabilities),
         key=lambda pair: pair[1],
         reverse=True,
     )
@@ -64,7 +64,7 @@ def _code_for(value, code_map):
     return max(code_map.values()) + 1
 
 
-def predict_salary(models, years_experience, education_level, job_role, location):
+def predict_salary(Models, years_experience, education_level, job_role, location):
     X_new = pd.DataFrame(
         {
             "YearsExperience": [years_experience],
@@ -73,20 +73,12 @@ def predict_salary(models, years_experience, education_level, job_role, location
             "Location": [_code_for(location, _LOC_CODE)],
         }
     )
-    return float(models["salary_model"].predict(X_new)[0])
+    return float(Models["salary_model"].predict(X_new)[0])
 
 
 st.set_page_config(page_title="Career & Salary Predictor", layout="centered")
 st.title("Career & Salary Predictor")
 
-try:
-    models = load_models(BASE_DIR_DEFAULT)
-except FileNotFoundError as e:
-    st.error(f"Couldn't find one of the model files in that folder.\n\n{e}")
-    st.stop()
-except Exception as e:
-    st.error(f"Error loading models: {e}")
-    st.stop()
 
 tab1, tab2 = st.tabs(["Career recommendation", "Salary prediction"])
 
@@ -97,8 +89,8 @@ with tab1:
     education_options = list(models["education_encoder"].categories_[0])
     education = st.selectbox("Highest education level", education_options)
 
-    skill_vocab = sorted(models["skills_vectorizer"].vocabulary_.keys())
-    interest_vocab = sorted(models["interests_vectorizer"].vocabulary_.keys())
+    skill_vocab = sorted(Models["skills_vectorizer"].vocabulary_.keys())
+    interest_vocab = sorted(Models["interests_vectorizer"].vocabulary_.keys())
 
     skills_selected = st.multiselect("Skills", skill_vocab)
     interests_selected = st.multiselect("Interests", interest_vocab)
@@ -110,7 +102,7 @@ with tab1:
             skills_str = ";".join(skills_selected)
             interests_str = ";".join(interests_selected)
             top_career, ranked = predict_career(
-                models, age, education, skills_str, interests_str
+                Models, age, education, skills_str, interests_str
             )
 
             st.success(f"Recommended career: **{top_career}**")
@@ -156,7 +148,7 @@ with tab2:
         elif location_choice == "Other" and not location.strip():
             st.warning("Type a location.")
         else:
-            salary = predict_salary(models, years, education_level, job_role, location)
+            salary = predict_salary(Models, years, education_level, job_role, location)
             if period == "Annual":
                 st.success(
                     f"Predicted salary: **${salary:,.2f} / year** "
