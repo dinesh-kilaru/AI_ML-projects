@@ -5,14 +5,45 @@ import pandas as pd
 import joblib
 import streamlit as st
 from scipy.sparse import hstack
-import requests, joblib
+import os
+import requests
+import joblib
+import streamlit as st
 
-career_model=joblib.load("Models/career_recommendation_model.pkl")
-skills_vectorizer = joblib.load("Models/skills_vectorizer.pkl")
-education_encoder = joblib.load("Models/education_encoder.pkl")
-career_label_encoder= joblib.load("Models/career_label_encoder.pkl")
-interests_vectorizer = joblib.load("Models/interests_vectorizer.pkl")
-salary_model = joblib.load("linear_regression_salary_model.joblib")
+# Ensure Models directory exists
+os.makedirs("Models", exist_ok=True)
+
+# Map each model to its Google Drive direct download link
+MODEL_URLS = {
+    "linear_regression_salary_model.joblib": "https://drive.google.com/uc?export=download&id=1ae7FXIZluFdzzp0MLs6KOJS7PRFPn2EW",
+    "career_recommendation_model.pkl": "https://drive.google.com/uc?export=download&id=1sz-1IytppzG4cZva5gBfyBoxONV29d7o",
+    "career_label_encoder.pkl": "https://drive.google.com/uc?export=download&id=1SMwhSg3g9aCFR48eOZvLIFiuEBfLfvq0",
+    "skills_vectorizer.pkl": "https://drive.google.com/uc?export=download&id=1ITP1paEQaTCla3SmV-RTliZCwjfXY8jG",
+    "education_encoder.pkl": "https://drive.google.com/uc?export=download&id=1MqvOEGdeximjd-thffTcgrgcwRF40Yio",
+    "interests_vectorizer.pkl": "https://drive.google.com/uc?export=download&id=1EaLpeIuwyp6uda6gE522lNYxH_KRb-wy",
+}
+
+def download_if_missing(filename, url):
+    dest = os.path.join("Models", filename)
+    if not os.path.exists(dest):
+        st.info(f"Downloading {filename} ...")
+        r = requests.get(url)
+        with open(dest, "wb") as f:
+            f.write(r.content)
+    return dest
+
+# Download and load all models
+try:
+    salary_model = joblib.load(download_if_missing("linear_regression_salary_model.joblib", MODEL_URLS["linear_regression_salary_model.joblib"]))
+    career_recommendation_model = joblib.load(download_if_missing("career_recommendation_model.pkl", MODEL_URLS["career_recommendation_model.pkl"]))
+    career_label_encoder_obj = joblib.load(download_if_missing("career_label_encoder.pkl", MODEL_URLS["career_label_encoder.pkl"]))
+    skills_vectorizer = joblib.load(download_if_missing("skills_vectorizer.pkl", MODEL_URLS["skills_vectorizer.pkl"]))
+    education_encoder = joblib.load(download_if_missing("education_encoder.pkl", MODEL_URLS["education_encoder.pkl"]))
+    interests_vectorizer = joblib.load(download_if_missing("interests_vectorizer.pkl", MODEL_URLS["interests_vectorizer.pkl"]))
+except Exception as e:
+    st.error(f"Error loading models: {e}")
+    st.stop()
+
 
 
 def semicolon_tokenizer(text):
