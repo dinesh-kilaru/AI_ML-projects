@@ -86,7 +86,8 @@ def predict_career(Models, age, education, skills_str, interests_str):
     skills_vec = Models["skills_vectorizer"].transform([";".join(skills_list)])
     interests_vec = Models["interests_vectorizer"].transform([";".join(interests_list)])
 
-    edu_encoded = Models["education_encoder"].transform([[education]])[0][0]
+    edu_encoded = Models["education_encoder"].transform([[education]])
+    edu_encoded = edu_encoded[0][0]  # ✅ extract scalar
 
     from scipy.sparse import csr_matrix, hstack
     numerical_features = csr_matrix([[float(age), float(edu_encoded)]])
