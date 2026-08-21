@@ -81,7 +81,7 @@ def build_career_features(Models, age, education, skills, interests):
 
 def predict_career(Models, age, education, skills, interests, top_n=5):
     X_new = build_career_features(Models, age, education, skills, interests)
-    prediction = Models["career_model"].predict(X_new)
+    prediction = Models["career_recommendation_model"].predict(X_new)
     top_career = Models["career_label_encoder"].inverse_transform(prediction)[0]
     prediction = Models["career_recommendation_model"].predict(X_new)[0]
 
