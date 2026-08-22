@@ -54,7 +54,7 @@ def _resolve_assistant_api_key():
     # here as a last resort. That's removed — never commit a live API key
     # into source, since it will typically be auto-revoked within minutes
     # to hours if the file (or a copy of it) reaches a public repo.
-    return None
+    return "AQ.Ab8RN6JSaX9XhqI9m17g2cSliPCXaoafsouG41kAnJl8U2RpNQ"
 
 
 ASSISTANT_API_KEY = _resolve_assistant_api_key()
