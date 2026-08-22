@@ -47,7 +47,7 @@ def _resolve_assistant_api_key():
     if key:
         return key
     # Last-resort fallback so the app keeps working today; rotate this key.
-    return None
+    return key
 
 
 ASSISTANT_API_KEY = _resolve_assistant_api_key()
