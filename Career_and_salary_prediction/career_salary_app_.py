@@ -2095,4 +2095,4 @@ salary and job-role pay figures — not a guarantee of real-world salary or care
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
-st.markdown('<p class="footer-note">Developed using Python, Machine Learning &amp; Streamlit</p>', unsafe_allow_html=True)
+st.markdown('<p class="footer-note">Developed using AI(LLM), Python, Machine Learning &amp; Streamlit</p>', unsafe_allow_html=True)
