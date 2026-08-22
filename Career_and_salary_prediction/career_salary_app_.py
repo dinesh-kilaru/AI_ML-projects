@@ -43,7 +43,7 @@ def _resolve_assistant_api_key():
             return key
     except Exception:
         pass
-    key = os.environ.get("GEMINI_API_KEY")
+    key = os.environ.get("AQ.Ab8RN6J6ZSVNaqRvXIZ_o1wOUzgdyiqXajrTzvA5zpoQ0B_n2A")
     if key:
         return key
     # Last-resort fallback so the app keeps working today; rotate this key.
