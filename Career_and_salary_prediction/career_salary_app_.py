@@ -34,7 +34,7 @@ def _get_secret(name, default=None):
     return os.environ.get(name, default)
 
 
-ASSISTANT_API_KEY = _get_secret("GEMINI_API_KEY", "AQ.Ab8RN6Ky-V5y_FKjA88245QJ-AppNZmqcL4MJSwElgroP8d5qg")
+ASSISTANT_API_KEY = _get_secret("GEMINI_API_KEY", "AIzaSyBFuGLVqKL8tNZnYX4a-RqZm9PfQQfeUXE")
 ASSISTANT_MODEL_NAME = _get_secret("GEMINI_MODEL_NAME", "gemini-2.5-flash")
 
 
