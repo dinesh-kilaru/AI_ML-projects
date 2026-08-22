@@ -1671,7 +1671,7 @@ elif page == "AI Career Assistant":
                     reply = "Sorry, I couldn't reach the assistant right now. Please try again in a moment."
 
                 if reply is None:
-                    genai.configure(api_key=ASSISTANT_API_KEY)
+                    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                     history = [
                         {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
                         for m in st.session_state["chat_messages"][:-1]
