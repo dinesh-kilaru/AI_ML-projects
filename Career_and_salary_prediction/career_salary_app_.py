@@ -985,12 +985,18 @@ Candidate profile:
 
 Respond with ONLY a raw JSON object (no markdown code fences, no extra
 commentary before or after) with exactly these keys:
-- "estimated_salary_range": a short string, a rough ANNUAL salary range in
-  {currency}, formatted naturally for that currency (e.g. "₹6,00,000 - ₹9,50,000"
-  or "$70,000 - $95,000")
+- "estimated_salary_min_inr": a plain number (no symbols, no commas), your
+  estimated ANNUAL salary lower bound converted to Indian Rupees (INR),
+  e.g. 600000
+- "estimated_salary_max_inr": a plain number (no symbols, no commas), your
+  estimated ANNUAL salary upper bound converted to Indian Rupees (INR),
+  e.g. 950000
+- "estimated_salary_range": a short display string, the SAME range as the
+  two numbers above but formatted naturally in {currency} (e.g.
+  "₹6,00,000 - ₹9,50,000" or "$70,000 - $95,000")
 - "reasoning": 1-2 concise sentences on how you arrived at that range
-- "recommended_careers": a JSON array of up to 3 objects, each with a
-  "career" string and a one-sentence "why" string
+- "recommended_careers": a JSON array of up to 3 objects, ordered best-fit
+  first, each with a "career" string and a one-sentence "why" string
 """
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -1006,31 +1012,58 @@ commentary before or after) with exactly these keys:
         return None, str(exc)
 
 
-def render_independent_ai_opinion(age, education, years, job_role, location, skills_selected, interests_selected, display_currency):
-    """Render the dashboard's independent-AI card. Self-contained: reads
-    nothing from Models/extended_index, and doesn't touch the AI Career
-    Assistant tab's code, session state, or API-key resolution — it only
-    reuses the already-resolved ASSISTANT_API_KEY/model name so the site
-    owner still configures GEMINI_API_KEY in exactly one place."""
+def _extract_ai_numeric_range(data):
+    """Pull a usable (min_inr, max_inr) tuple of floats out of the
+    independent AI's response. Returns (None, None) if the fields are
+    missing, non-numeric, zero/negative, or inverted — callers treat that
+    as "no AI override available" and fall back to the trained model
+    instead of trusting a malformed number."""
+    if not isinstance(data, dict):
+        return None, None
+    try:
+        lo = float(data.get("estimated_salary_min_inr"))
+        hi = float(data.get("estimated_salary_max_inr"))
+    except (TypeError, ValueError):
+        return None, None
+    if lo <= 0 or hi <= 0 or hi < lo:
+        return None, None
+    return lo, hi
+
+
+def _ai_top_career(data):
+    """First usable career name from the AI's recommended_careers list, or
+    None. Used to override the headline 'Top Career Match' when the AI
+    opinion is available."""
+    if not isinstance(data, dict):
+        return None
+    for item in data.get("recommended_careers", []) or []:
+        if isinstance(item, dict):
+            career = str(item.get("career", "")).strip()
+            if career:
+                return career
+    return None
+
+
+def render_ai_opinion_card(data, error, badge_text="Independent AI · not from trained files", note=None):
+    """Pure rendering of the independent-AI card from already-fetched
+    data/error — kept separate from the fetch itself so the Dashboard can
+    fetch the AI's opinion once, decide whether to use its numbers as the
+    headline prediction, and still show this exact card. `note`, if given,
+    is an extra st.info/st.success line about how the result is being used
+    elsewhere on the page (e.g. "used as the headline prediction below")."""
     st.markdown('<div class="ai-card">', unsafe_allow_html=True)
-    st.markdown('<span class="ai-badge">Independent AI · not from trained files</span>', unsafe_allow_html=True)
+    st.markdown(f'<span class="ai-badge">{badge_text}</span>', unsafe_allow_html=True)
     st.markdown("##### 🧠 Independent AI Salary & Career Opinion")
     st.caption(
         "A second opinion from a general-purpose AI reasoning from its own "
         "knowledge — separate from the joblib-trained salary/career models "
-        "above, so it keeps working even if those model files fail to load."
+        "below, so it keeps working even if those model files fail to load."
     )
 
     if not ASSISTANT_API_KEY:
         st.info("This independent AI opinion isn't configured — no API key is available.")
         st.markdown("</div>", unsafe_allow_html=True)
         return
-
-    with st.spinner("Asking the independent AI for its own estimate…"):
-        data, error = _fetch_independent_ai_opinion(
-            age, education, years, job_role, location,
-            tuple(skills_selected), tuple(interests_selected), display_currency,
-        )
 
     if error or not data:
         st.warning("Couldn't get an independent AI opinion right now.")
@@ -1056,12 +1089,36 @@ def render_independent_ai_opinion(age, education, years, job_role, location, ski
                 if career:
                     st.markdown(f"- **{career}** — {why}" if why else f"- **{career}**")
 
+    if note:
+        st.success(note)
+
     st.caption(
         "Generated independently by a general-purpose AI model, not by this "
         "app's trained files — treat it as a second, rougher reference "
         "point rather than a precise figure."
     )
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+def fetch_and_render_ai_opinion(age, education, years, job_role, location, skills_selected, interests_selected, display_currency, badge_text=None, note=None):
+    """Fetch the independent AI opinion and render it in one call (the
+    original all-in-one entry point). Returns (data, error) so callers that
+    need the fetched values for something else (e.g. overriding the ML
+    prediction) don't have to fetch a second time."""
+    if not ASSISTANT_API_KEY:
+        render_ai_opinion_card(None, None, badge_text=badge_text or "Independent AI · not from trained files")
+        return None, None
+    with st.spinner("Asking the independent AI for its own estimate…"):
+        data, error = _fetch_independent_ai_opinion(
+            age, education, years, job_role, location,
+            tuple(skills_selected), tuple(interests_selected), display_currency,
+        )
+    render_ai_opinion_card(
+        data, error,
+        badge_text=badge_text or "Independent AI · not from trained files",
+        note=note,
+    )
+    return data, error
 
 
 CSS = """
@@ -1454,19 +1511,64 @@ if page == "Dashboard":
         elif not skills_selected or not interests_selected:
             st.warning("Pick at least one skill and one interest for the career recommendation.")
         else:
-            salary_inr, salary_method = predict_salary_full(Models, years, education, job_role, location)
+            # -----------------------------------------------------------
+            # The independent AI opinion is fetched and displayed FIRST.
+            # When it returns a usable numeric range, its salary estimate
+            # and top career pick become the headline prediction for the
+            # rest of this page — overriding the trained joblib models.
+            # The trained models still run underneath regardless (so
+            # there's always a fallback if the AI call fails or returns
+            # something unparseable), and their own numbers are shown
+            # afterward in a clearly-labeled "for comparison" expander
+            # instead of driving the headline figures.
+            # -----------------------------------------------------------
+            with st.spinner("Asking the independent AI for its own estimate…"):
+                ai_data, ai_error = _fetch_independent_ai_opinion(
+                    age, education, years, job_role, location,
+                    tuple(skills_selected), tuple(interests_selected), display_currency,
+                )
+            ai_min_inr, ai_max_inr = _extract_ai_numeric_range(ai_data)
+            ai_career = _ai_top_career(ai_data)
+            ai_override_active = ai_min_inr is not None and ai_max_inr is not None
+
+            render_ai_opinion_card(
+                ai_data, ai_error,
+                badge_text="Independent AI · primary estimate",
+                note=(
+                    "Using this AI estimate as the headline prediction below."
+                    if ai_override_active else
+                    "Couldn't parse a usable numeric range from the AI's reply, "
+                    "so the trained model's prediction is used as the headline "
+                    "below instead."
+                ),
+            )
+
+            # Trained joblib models still run regardless of the AI result —
+            # this is both the fallback source and the comparison figure.
+            ml_salary_inr, salary_method = predict_salary_full(Models, years, education, job_role, location)
             avg_reference_inr = reference_average_salary(Models, years, education, location)
 
             extended_index = load_extended_career_index()
             blended_matches = blended_career_matches(
                 Models, extended_index, age, education, skills_selected, interests_selected, top_n=5
             )
-            top_career = blended_matches[0][0] if blended_matches else "N/A"
+            ml_top_career = blended_matches[0][0] if blended_matches else "N/A"
+
+            if ai_override_active:
+                salary_inr = (ai_min_inr + ai_max_inr) / 2.0
+                salary_min_inr = ai_min_inr
+                salary_max_inr = ai_max_inr
+                top_career = ai_career or ml_top_career
+            else:
+                salary_inr = ml_salary_inr
+                salary_min_inr = ml_salary_inr * 0.85
+                salary_max_inr = ml_salary_inr * 1.15
+                top_career = ml_top_career
 
             rates, live_rates = get_exchange_rates()
             salary_disp = convert_from_inr(salary_inr, display_currency, rates)
-            min_disp = convert_from_inr(salary_inr * 0.85, display_currency, rates)
-            max_disp = convert_from_inr(salary_inr * 1.15, display_currency, rates)
+            min_disp = convert_from_inr(salary_min_inr, display_currency, rates)
+            max_disp = convert_from_inr(salary_max_inr, display_currency, rates)
             avg_ref_disp = convert_from_inr(avg_reference_inr, display_currency, rates)
 
             st.session_state["last_prediction"] = {
@@ -1477,7 +1579,12 @@ if page == "Dashboard":
                 "currency": display_currency,
                 "salary_display": salary_disp, "top_career": top_career,
                 "top_matches": blended_matches,
+                "prediction_source": "independent_ai" if ai_override_active else "trained_model",
+                "ml_salary_inr": ml_salary_inr, "ml_top_career": ml_top_career,
             }
+
+            source_label = "Independent AI" if ai_override_active else "Trained model (AI unavailable)"
+            st.caption(f"Headline numbers below are sourced from: **{source_label}**.")
 
             c1, c2, c3, c4 = st.columns(4)
             for col, cls, label, value in [
@@ -1527,7 +1634,13 @@ if page == "Dashboard":
                 )
                 st.plotly_chart(fig, use_container_width=True)
                 st.markdown(f"Market position: **<span style='color:{pos_color} !important'>{position}</span>** (vs. average across trained job roles for this profile)", unsafe_allow_html=True)
-                if salary_method == "scaled":
+                if ai_override_active:
+                    st.caption(
+                        "💡 This range comes from the independent AI's own reasoning "
+                        "(card above) — see the '📐 Trained model's own prediction' "
+                        "section below for the joblib model's separate figure."
+                    )
+                elif salary_method == "scaled":
                     st.caption(
                         f"💱 {location} isn't one of the model's trained locations "
                         f"(India/UK/USA/Remote), so this is the India-based prediction "
@@ -1576,7 +1689,14 @@ if page == "Dashboard":
 
             with right:
                 st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.markdown("##### Top Career Recommendations")
+                st.markdown("##### Trained Model Career Matches")
+                if ai_override_active:
+                    st.caption(
+                        f"The headline **Top Career Match** chip above uses the "
+                        f"independent AI's pick (**{top_career}**). This list is the "
+                        "trained classifier + content-matching model's own ranking, "
+                        "shown separately for comparison."
+                    )
                 if blended_matches:
                     for career, match_score, clf_prob in blended_matches:
                         st.write(f"**{career}** — {match_score * 100:.0f}% match")
@@ -1608,6 +1728,14 @@ if page == "Dashboard":
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.markdown("##### Career Growth Trend")
             g_years, g_salaries_inr = salary_growth_curve(Models, education, job_role, location, max_years=20, step=1)
+            if ai_override_active and ml_salary_inr:
+                # Rescale the trained model's growth curve (which has the
+                # shape of how salary moves with experience) so it passes
+                # through the AI's headline figure at the selected years of
+                # experience — keeps the AI's number authoritative while
+                # still showing a plausible growth trajectory around it.
+                scale_factor = salary_inr / ml_salary_inr
+                g_salaries_inr = [s * scale_factor for s in g_salaries_inr]
             g_salaries_disp = [convert_from_inr(s, display_currency, rates) for s in g_salaries_inr]
             growth_fig = go.Figure(go.Scatter(
                 x=g_years, y=g_salaries_disp, mode="lines+markers",
@@ -1623,10 +1751,17 @@ if page == "Dashboard":
                 yaxis=dict(gridcolor="rgba(255,255,255,0.08)"),
             )
             st.plotly_chart(growth_fig, use_container_width=True)
-            st.caption(
-                "Projected by holding education, job role, and location fixed and "
-                "varying years of experience — a model projection, not a guarantee."
-            )
+            if ai_override_active:
+                st.caption(
+                    "Trained model's growth shape, rescaled to pass through the "
+                    "independent AI's headline estimate at your selected experience "
+                    "level — a projection, not a guarantee."
+                )
+            else:
+                st.caption(
+                    "Projected by holding education, job role, and location fixed and "
+                    "varying years of experience — a model projection, not a guarantee."
+                )
             st.markdown("</div>", unsafe_allow_html=True)
 
             known_classes = list(Models["career_label_encoder"].classes_) if MODELS_OK else []
@@ -1655,19 +1790,45 @@ if page == "Dashboard":
                 st.markdown("</div>", unsafe_allow_html=True)
 
             # -----------------------------------------------------------------
-            # Independent AI opinion (Gemini) — deliberately separate from the
-            # trained joblib models above. See _independent_ai_dashboard_opinion()
-            # for details; it reuses the SAME API key resolution as the AI
-            # Career Assistant tab (nothing about that tab or the key handling
-            # is touched), but makes its own standalone Gemini call with no
-            # shared chat history and no dependency on Models/extended_index.
+            # Trained model's own prediction, kept visible as a secondary,
+            # clearly-labeled comparison figure. The independent AI opinion
+            # was already fetched and shown at the very top of this section;
+            # its numbers (when usable) drive every headline figure above —
+            # this expander is the trained joblib models' unmodified output,
+            # so nothing about their behavior is hidden, only de-emphasized.
             # -----------------------------------------------------------------
-            render_independent_ai_opinion(
-                age=age, education=education, years=years, job_role=job_role,
-                location=location, skills_selected=skills_selected,
-                interests_selected=interests_selected,
-                display_currency=display_currency,
-            )
+            with st.expander("📐 Trained model's own prediction (for comparison)"):
+                ml_salary_disp = convert_from_inr(ml_salary_inr, display_currency, rates)
+                st.markdown(f"**Trained model salary estimate:** {format_money(ml_salary_disp, display_currency)}")
+                st.markdown(f"**Trained model top career match:** {ml_top_career}")
+                if salary_method == "scaled":
+                    st.caption(
+                        f"💱 {location} isn't one of the model's trained locations "
+                        f"(India/UK/USA/Remote), so this is the India-based prediction "
+                        f"scaled by {location}'s average-salary level (~"
+                        f"{country_relative_index(location):.2f}× India's)."
+                    )
+                elif salary_method == "role_scaled":
+                    st.caption(
+                        f"🧭 {job_role} isn't one of the model's trained job roles "
+                        f"({', '.join(JOB_ROLES)}), so this is the {location} prediction for "
+                        f"{JOB_ROLE_ANCHOR} scaled by {job_role}'s typical pay level (~"
+                        f"{role_relative_index(job_role):.2f}× {JOB_ROLE_ANCHOR})."
+                    )
+                elif salary_method == "role_and_location_scaled":
+                    st.caption(
+                        f"🧭💱 Both {job_role} and {location} are outside what the model was "
+                        f"trained on, so this prediction chains two scalings: the India-based "
+                        f"{JOB_ROLE_ANCHOR} estimate scaled by {location}'s average-salary level "
+                        f"(~{country_relative_index(location):.2f}× India's) and then by "
+                        f"{job_role}'s typical pay level (~{role_relative_index(job_role):.2f}× "
+                        f"{JOB_ROLE_ANCHOR}). Treat this as a rougher estimate than a single scaling."
+                    )
+                if ai_override_active:
+                    st.caption(
+                        "Shown for comparison only — the independent AI's estimate at "
+                        "the top of this page is being used as the headline prediction."
+                    )
 
     elif predict_clicked and not MODELS_OK:
         st.error("Models aren't loaded, so a prediction can't be made right now.")
@@ -1676,7 +1837,7 @@ if page == "Dashboard":
             "the independent AI estimate below — it doesn't depend on the "
             "joblib model files at all."
         )
-        render_independent_ai_opinion(
+        fetch_and_render_ai_opinion(
             age=age, education=education, years=years, job_role=job_role,
             location=location, skills_selected=skills_selected,
             interests_selected=interests_selected,
