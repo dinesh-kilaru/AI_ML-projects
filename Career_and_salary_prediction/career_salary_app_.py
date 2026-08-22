@@ -38,16 +38,16 @@ def _resolve_assistant_api_key():
     in your host's environment variables — not back in this file.
     """
     try:
-        key = st.secrets.get("AQ.Ab8RN6J6ZSVNaqRvXIZ_o1wOUzgdyiqXajrTzvA5zpoQ0B_n2A")
+        key = st.secrets.get("GEMINI_API_KEY")
         if key:
             return key
     except Exception:
         pass
-    key = os.environ.get("AQ.Ab8RN6J6ZSVNaqRvXIZ_o1wOUzgdyiqXajrTzvA5zpoQ0B_n2A")
+    key = os.environ.get("GEMINI_API_KEY")
     if key:
         return key
     # Last-resort fallback so the app keeps working today; rotate this key.
-    return "AQ.Ab8RN6J6ZSVNaqRvXIZ_o1wOUzgdyiqXajrTzvA5zpoQ0B_n2A"
+    return "AIzaSyBFuGLVqKL8tNZnYX4a-RqZm9PfQQfeUXE"
 
 
 ASSISTANT_API_KEY = _resolve_assistant_api_key()
@@ -939,6 +939,110 @@ def format_money(amount, currency):
     return f"{symbol}{amount:,.2f}"
 
 
+# ---------------------------------------------------------------------------
+# Second AI opinion for the Dashboard's "Predict Salary & Recommend Careers"
+# button
+# ---------------------------------------------------------------------------
+# This is a *separate* generative pass that sits alongside the trained
+# joblib/pkl models above — it doesn't replace predict_salary_full() or
+# blended_career_matches(), it comments on what they produced. It reuses the
+# exact same ASSISTANT_API_KEY / ASSISTANT_MODEL_CANDIDATES resolved at the
+# top of this file (nothing about key resolution or model-name fallback is
+# changed here), and follows the same connect → try each candidate → surface
+# a clear, categorized error pattern already used by the AI Career Assistant
+# chat page — but as its own standalone function, so the chat page's code
+# and behavior are left untouched.
+def generate_ai_recommendation(profile, blended_matches, extra_matches, salary_inr, salary_disp, display_currency):
+    """Ask the configured Gemini model for a short second opinion on one
+    specific prediction, grounded in the trained models' own vocabulary/
+    classes plus the numbers just computed for this user.
+
+    Returns (reply_text_or_None, debug_detail_or_None). debug_detail is a
+    human-readable string explaining *why* it failed (auth, missing model,
+    quota, not configured, package missing) — mirroring the diagnostics the
+    AI Career Assistant chat already shows.
+    """
+    if not ASSISTANT_API_KEY:
+        return None, "not_configured"
+
+    try:
+        import google.generativeai as genai
+    except ImportError as exc:
+        return None, (
+            "ImportError: the `google-generativeai` package isn't installed in "
+            "this environment. Add `google-generativeai` to requirements.txt and "
+            f"redeploy.\n\n{exc}"
+        )
+
+    ctx_lines = [
+        "You are an AI career advisor working alongside a trained ML salary and "
+        "career-recommendation system embedded in a Streamlit app. You are given "
+        "that system's own trained-data context, plus the specific prediction it "
+        "just produced for one user.",
+        "Write a short second opinion (roughly 4-6 sentences, plain prose, no "
+        "headers or bullet lists): say whether the predicted salary and top "
+        "career matches look reasonable for this profile, flag anything worth "
+        "double-checking, and suggest one or two concrete next steps (e.g. a "
+        "skill to build or a related role to consider). Don't just repeat the "
+        "numbers you were given back as a list.",
+    ]
+    if MODELS_OK:
+        ctx_lines.append(f"Trained job roles: {JOB_ROLES}")
+        ctx_lines.append(f"Trained education levels: {EDUCATION_LEVELS}")
+        ctx_lines.append(f"Career classes the recommender can output: {list(Models['career_label_encoder'].classes_)}")
+        ctx_lines.append(f"Skills vocabulary the classifier was trained on: {sorted(Models['skills_vectorizer'].vocabulary_.keys())}")
+        ctx_lines.append(f"Interests vocabulary the classifier was trained on: {sorted(Models['interests_vectorizer'].vocabulary_.keys())}")
+    ctx_lines.append(f"User profile just submitted: {json.dumps(profile, default=str)}")
+    ctx_lines.append(
+        f"Predicted salary: {format_money(salary_disp, display_currency)} "
+        f"(~{salary_inr:,.0f} INR)"
+    )
+    if blended_matches:
+        match_summary = [f"{c} ({s * 100:.0f}% match)" for c, s, _ in blended_matches]
+        ctx_lines.append(f"Top blended career matches from the trained/content-based system: {match_summary}")
+    if extra_matches:
+        extra_summary = [f"{c} ({s * 100:.0f}% match)" for c, s, _ in extra_matches]
+        ctx_lines.append(f"Additional careers surfaced from the broader dataset: {extra_summary}")
+
+    system_ctx = "\n\n".join(ctx_lines)
+
+    # Same candidate-fallback pattern (and the same cached "which model name
+    # actually worked" session-state key) as the AI Career Assistant chat.
+    model_order = st.session_state.get("_working_gemini_model", ASSISTANT_MODEL_CANDIDATES)
+    if isinstance(model_order, str):
+        model_order = [model_order] + [m for m in ASSISTANT_MODEL_CANDIDATES if m != model_order]
+
+    last_exc = None
+    for candidate in model_order:
+        try:
+            genai.configure(api_key=ASSISTANT_API_KEY)
+            gmodel = genai.GenerativeModel(model_name=candidate, system_instruction=system_ctx)
+            response = gmodel.generate_content("Give your second opinion on this prediction now.")
+            st.session_state["_working_gemini_model"] = candidate
+            return response.text, None
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            continue
+
+    print(f"[Dashboard AI second opinion] request failed: {last_exc}")
+    msg = str(last_exc)
+    if any(t in msg for t in ("API_KEY_INVALID", "API key not valid", "401", "PERMISSION_DENIED", "403")):
+        debug_detail = (
+            "Auth error: the Gemini API key is invalid, revoked, or lacks access "
+            f"to this model.\n\n{msg}"
+        )
+    elif any(t in msg for t in ("404", "not found", "NOT_FOUND")):
+        debug_detail = (
+            f"Model-not-found error: none of {ASSISTANT_MODEL_CANDIDATES} are "
+            f"available to this API key/project.\n\n{msg}"
+        )
+    elif any(t in msg for t in ("429", "quota", "RESOURCE_EXHAUSTED")):
+        debug_detail = f"Rate-limit/quota error from the Gemini API.\n\n{msg}"
+    else:
+        debug_detail = f"Unhandled error calling the Gemini API.\n\n{msg}"
+    return None, debug_detail
+
+
 CSS = """
 <style>
 :root {
@@ -1296,6 +1400,14 @@ if page == "Dashboard":
             "⚠️ 'Other' entries may be less reliable."
         )
 
+    include_ai_opinion = st.checkbox(
+        "🤝 Also get a second opinion from an AI advisor",
+        value=True,
+        help="Sends this prediction's numbers (not raw personal identifiers) to the "
+        "same generative AI used by the AI Career Assistant chat, so it can comment "
+        "on the trained models' own output. Uncheck to skip the extra API call.",
+    )
+
     predict_clicked = st.button("Predict Salary & Recommend Careers", type="primary")
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1315,6 +1427,12 @@ if page == "Dashboard":
                 Models, extended_index, age, education, skills_selected, interests_selected, top_n=5
             )
             top_career = blended_matches[0][0] if blended_matches else "N/A"
+
+            known_classes = list(Models["career_label_encoder"].classes_) if MODELS_OK else []
+            extra_matches = recommend_extended_careers(
+                extended_index, skills_selected, interests_selected,
+                exclude_careers=known_classes, top_n=4,
+            )
 
             rates, live_rates = get_exchange_rates()
             salary_disp = convert_from_inr(salary_inr, display_currency, rates)
@@ -1343,6 +1461,36 @@ if page == "Dashboard":
                     f'<div class="chip {cls}"><span class="label">{label}</span>{value}</div>',
                     unsafe_allow_html=True,
                 )
+
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown("##### 🤝 AI Advisor's Second Opinion")
+            st.caption(
+                "A second, independent read from a generative AI — grounded in the "
+                "same trained model vocabulary/classes and this prediction — "
+                "shown first, before the ML system's own numbers below."
+            )
+            if not include_ai_opinion:
+                st.caption("Skipped — the 'get a second opinion' checkbox above was unchecked.")
+            elif not ASSISTANT_API_KEY:
+                st.info("The AI advisor isn't configured yet — ask the site owner to set it up.")
+            else:
+                with st.spinner("Getting a second opinion from the AI advisor…"):
+                    ai_reply, ai_debug = generate_ai_recommendation(
+                        profile=st.session_state["last_prediction"],
+                        blended_matches=blended_matches,
+                        extra_matches=extra_matches,
+                        salary_inr=salary_inr,
+                        salary_disp=salary_disp,
+                        display_currency=display_currency,
+                    )
+                if ai_reply:
+                    st.markdown(ai_reply)
+                else:
+                    st.warning("Couldn't reach the AI advisor right now — try again in a moment.")
+                    if ai_debug:
+                        with st.expander("Technical details (visible while debugging — remove for production)"):
+                            st.code(ai_debug)
+            st.markdown("</div>", unsafe_allow_html=True)
 
             st.write("")
             left, right = st.columns([1, 1])
@@ -1482,11 +1630,6 @@ if page == "Dashboard":
             )
             st.markdown("</div>", unsafe_allow_html=True)
 
-            known_classes = list(Models["career_label_encoder"].classes_) if MODELS_OK else []
-            extra_matches = recommend_extended_careers(
-                extended_index, skills_selected, interests_selected,
-                exclude_careers=known_classes, top_n=4,
-            )
             if extra_matches:
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.markdown("##### More Careers Worth Exploring")
@@ -1671,7 +1814,7 @@ elif page == "AI Career Assistant":
                     reply = "Sorry, I couldn't reach the assistant right now. Please try again in a moment."
 
                 if reply is None:
-                    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                    genai.configure(api_key=ASSISTANT_API_KEY)
                     history = [
                         {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
                         for m in st.session_state["chat_messages"][:-1]
