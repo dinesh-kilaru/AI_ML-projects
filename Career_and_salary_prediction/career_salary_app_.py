@@ -1015,7 +1015,7 @@ def generate_ai_recommendation(profile, blended_matches, extra_matches, salary_i
     last_exc = None
     for candidate in model_order:
         try:
-            genai.configure(api_key=ASSISTANT_API_KEY)
+            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             gmodel = genai.GenerativeModel(model_name=candidate, system_instruction=system_ctx)
             response = gmodel.generate_content("Give your second opinion on this prediction now.")
             st.session_state["_working_gemini_model"] = candidate
@@ -1814,7 +1814,7 @@ elif page == "AI Career Assistant":
                     reply = "Sorry, I couldn't reach the assistant right now. Please try again in a moment."
 
                 if reply is None:
-                    genai.configure(api_key=ASSISTANT_API_KEY)
+                    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
                     history = [
                         {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
                         for m in st.session_state["chat_messages"][:-1]
