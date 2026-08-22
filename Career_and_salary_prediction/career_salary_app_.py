@@ -35,7 +35,7 @@ def _get_secret(name, default=None):
     return os.environ.get(name, default)
 
 
-ASSISTANT_API_KEY = _get_secret("GEMINI_API_KEY","AQ.Ab8RN6Ky-V5y_FKjA88245QJ-AppNZmqcL4MJSwElgroP8d5qg")
+ASSISTANT_API_KEY = _get_secret("GEMINI_API_KEY","AQ.Ab8RN6KlBmLHc2m6v0xFqhY-QOHSsSHIZSkGStAQ48ZELsi3og")
 ASSISTANT_MODEL_NAME = _get_secret("GEMINI_MODEL_NAME", "gemini-2.5-flash")
 
 
@@ -1558,6 +1558,92 @@ if page == "Dashboard":
 
     elif predict_clicked and not MODELS_OK:
         st.error("Models aren't loaded, so a prediction can't be made right now.")
+
+    # ---- Model sensitivity diagnostic ---------------------------------
+    # Answers "are my predictions actually changing?" with real numbers
+    # pulled straight from the loaded models — not simulated. Runs the
+    # salary model across every trained Job Role x Location combo (fixed
+    # profile) and the career model across a few very different
+    # skill/interest sets, then flags whether the output is effectively
+    # flat. This exists to separate two very different root causes for
+    # "predictions never change": (a) the app not passing your inputs
+    # through correctly, vs (b) the underlying trained model itself
+    # having weak/near-zero sensitivity to those inputs (common with a
+    # small sample training set) or the extended career dataset failing
+    # to load so the recommender falls back to one dominant class.
+    with st.expander("🔍 Why aren't my results changing? (model sensitivity check)"):
+        st.caption(
+            "This calls the real loaded models across a few different inputs so "
+            "you can see, directly, how much (if at all) each input actually "
+            "moves the prediction — nothing here is simulated."
+        )
+        if not MODELS_OK:
+            st.warning("Models aren't loaded, so this check can't run.")
+        else:
+            diag_years, diag_edu = 3, education_options[0]
+            salary_rows = []
+            for r in JOB_ROLES:
+                for loc in LOCATIONS:
+                    s_val, s_method = predict_salary_full(Models, diag_years, diag_edu, r, loc)
+                    salary_rows.append(
+                        {"Job Role": r, "Location": loc, "Predicted Salary (INR)": round(s_val), "Method": s_method}
+                    )
+            salary_diag_df = pd.DataFrame(salary_rows)
+            st.markdown(
+                f"**Salary model** — fixed profile ({diag_years} yrs exp, {diag_edu}), "
+                "every trained Job Role × Location:"
+            )
+            st.dataframe(salary_diag_df, use_container_width=True, hide_index=True)
+            s_min = salary_diag_df["Predicted Salary (INR)"].min()
+            s_max = salary_diag_df["Predicted Salary (INR)"].max()
+            s_mean = salary_diag_df["Predicted Salary (INR)"].mean()
+            if s_mean and (s_max - s_min) < s_mean * 0.02:
+                st.error(
+                    "The salary model itself barely reacts to Job Role or Location for this "
+                    "profile (< 2% spread) — that points to the trained model having weak "
+                    "coefficients on those columns, not to a bug in this app's code. It was "
+                    "likely trained on too small/uniform a sample to learn those effects. "
+                    "Retraining `linear_regression_salary_model.joblib` on a larger, more "
+                    "varied dataset is the real fix."
+                )
+            else:
+                st.success(
+                    f"The salary model does respond to Job Role/Location for this profile "
+                    f"(spread: {format_money(s_min, 'INR')} – {format_money(s_max, 'INR')})."
+                )
+
+            st.markdown("---")
+            st.markdown("**Career model** — same age/education, three very different skill/interest sets:")
+            sample_sets = [
+                (["python", "machine learning", "statistics"], ["ai", "data science"]),
+                (["graphic design", "figma", "ui design"], ["design", "arts"]),
+                (["sales", "negotiation", "communication"], ["marketing", "business"]),
+            ]
+            extended_index_diag = load_extended_career_index()
+            career_rows = []
+            for skl, intr in sample_sets:
+                matches = blended_career_matches(Models, extended_index_diag, 25, diag_edu, skl, intr, top_n=1)
+                top = matches[0][0] if matches else "N/A"
+                career_rows.append({"Skills": ", ".join(skl), "Interests": ", ".join(intr), "Top Career": top})
+            career_diag_df = pd.DataFrame(career_rows)
+            st.dataframe(career_diag_df, use_container_width=True, hide_index=True)
+            if extended_index_diag is None:
+                st.error(
+                    "The extended career dataset (used to make the match score responsive to "
+                    "your exact skills/interests) failed to load — see any warning higher up "
+                    "the page. With it unavailable, the top recommendation falls back to the "
+                    "trained classifier alone, which can look 'stuck' on one class if it was "
+                    "trained on a small/imbalanced sample."
+                )
+            elif len({row["Top Career"] for row in career_rows}) == 1:
+                st.error(
+                    "The top career recommendation is identical across very different "
+                    "skill/interest sets. With the extended dataset loaded, that points to "
+                    "the trained classifier being dominated by one class — again, most "
+                    "likely a small/imbalanced training set rather than an app bug."
+                )
+            else:
+                st.success("The career model does respond to different skills/interests.")
 
 # ===========================================================================
 # AI CAREER ASSISTANT
