@@ -22,20 +22,8 @@ st.set_page_config(
 )
 
 
-def _get_secret(name, default=None):
-    """Read a secret from Streamlit's secrets store, then env vars. Never
-    surfaced in the UI — used only server-side so end users can't see which
-    provider/model/key powers the assistant."""
-    try:
-        if name in st.secrets:
-            return st.secrets[name]
-    except Exception:  # noqa: BLE001 — no secrets.toml configured at all
-        pass
-    return os.environ.get(name, default)
-
-
-ASSISTANT_API_KEY = _get_secret("GEMINI_API_KEY", "AIzaSyBFuGLVqKL8tNZnYX4a-RqZm9PfQQfeUXE")
-ASSISTANT_MODEL_NAME = _get_secret("GEMINI_MODEL_NAME", "gemini-2.5-flash")
+ASSISTANT_API_KEY = "AIzaSyBFuGLVqKL8tNZnYX4a-RqZm9PfQQfeUXE"
+ASSISTANT_MODEL_NAME = "gemini-2.5-flash"
 
 
 def semicolon_tokenizer(text):
