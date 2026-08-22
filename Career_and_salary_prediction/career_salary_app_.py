@@ -23,7 +23,7 @@ st.set_page_config(
 
 
 ASSISTANT_API_KEY = "AIzaSyBFuGLVqKL8tNZnYX4a-RqZm9PfQQfeUXE"
-ASSISTANT_MODEL_NAME = "gemini-2.5-flash"
+ASSISTANT_MODEL_NAME = "gemini-2.5-flash-lite"
 
 
 def semicolon_tokenizer(text):
