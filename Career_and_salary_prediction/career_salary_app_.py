@@ -46,8 +46,15 @@ def _resolve_assistant_api_key():
     key = os.environ.get("GEMINI_API_KEY")
     if key:
         return key
-    # Last-resort fallback so the app keeps working today; rotate this key.
-    return "AQ.Ab8RN6JSaX9XhqI9m17g2cSliPCXaoafsouG41kAnJl8U2RpNQ"
+    # No key configured — the real-time AI features (chat assistant, live
+    # salary/career estimate) will show a clear "not configured" message
+    # instead of failing silently. Set GEMINI_API_KEY in
+    # `.streamlit/secrets.toml` or your host's environment variables.
+    # NOTE: a previous version of this function returned a hard-coded key
+    # here as a last resort. That's removed — never commit a live API key
+    # into source, since it will typically be auto-revoked within minutes
+    # to hours if the file (or a copy of it) reaches a public repo.
+    return None
 
 
 ASSISTANT_API_KEY = _resolve_assistant_api_key()
@@ -939,6 +946,107 @@ def format_money(amount, currency):
     return f"{symbol}{amount:,.2f}"
 
 
+def convert_from_usd(amount_usd, target_currency, rates):
+    """Convert a USD figure to the display currency, reusing the same
+    INR-based `rates` table the rest of the app already uses (rates are
+    expressed as "1 INR = X target currency"), so USD -> INR -> target."""
+    usd_rate = rates.get("USD") or FALLBACK_RATES_FROM_INR["USD"]
+    amount_inr = amount_usd / usd_rate if usd_rate else amount_usd * 83.0
+    return convert_from_inr(amount_inr, target_currency, rates)
+
+
+def _extract_json_object(raw_text):
+    """Best-effort extraction of a JSON object from an LLM response that may
+    be wrapped in markdown code fences or padded with stray text before/
+    after it — mirroring the tolerant-parsing approach already used
+    elsewhere in this file (e.g. clean_csv_inplace, _download_drive_bytes)."""
+    text = (raw_text or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        text = text[start:end + 1]
+    return json.loads(text)
+
+
+# ---------------------------------------------------------------------------
+# Real-time AI salary prediction & career recommendation
+# ---------------------------------------------------------------------------
+# Unlike predict_salary_full()/blended_career_matches() above — which score
+# a fixed, pre-trained joblib model and a locally cached career dataset —
+# this calls the Gemini backend fresh, per request, for the exact profile
+# entered. It's meant as a live, market-aware cross-check alongside the
+# trained-model numbers, not a replacement for them (the trained models
+# stay deterministic and don't depend on network/API availability).
+def build_ai_estimate_prompt(age, education, years, job_role, location, skills_selected, interests_selected):
+    skills_txt = ", ".join(skills_selected) if skills_selected else "none specified"
+    interests_txt = ", ".join(interests_selected) if interests_selected else "none specified"
+    return f"""You are a real-time labor-market analyst embedded in a career-planning app.
+Estimate a realistic salary range and recommend suitable careers for the profile below,
+drawing on your general knowledge of current job market conditions.
+
+Profile:
+- Age: {age}
+- Education level: {education}
+- Years of experience: {years}
+- Target job role: {job_role}
+- Location: {location}
+- Skills: {skills_txt}
+- Interests: {interests_txt}
+
+Respond with ONLY a single valid JSON object — no markdown fences, no commentary before
+or after it — in exactly this shape:
+{{
+  "salary_low_usd": <number>,
+  "salary_avg_usd": <number>,
+  "salary_high_usd": <number>,
+  "confidence": "<low|medium|high>",
+  "reasoning": "<2-3 sentence explanation grounded in the role, location, and experience>",
+  "career_recommendations": [
+    {{"career": "<title>", "match_percent": <integer 0-100>, "reasoning": "<one sentence>"}}
+  ]
+}}
+Include 3 to 5 career_recommendations, best match first. Give all salary figures in USD
+regardless of location — the app converts currency itself. Be specific to this exact
+role/location/experience combination rather than generic, rounded numbers."""
+
+
+def get_ai_realtime_estimate(age, education, years, job_role, location, skills_selected, interests_selected):
+    """Call the same Gemini backend used by the AI Career Assistant chat, but
+    as a one-shot, real-time salary + career estimate for the current
+    profile. Returns (result_dict, error_message) — exactly one is None."""
+    if not ASSISTANT_API_KEY:
+        return None, "The AI assistant isn't configured (missing GEMINI_API_KEY)."
+    try:
+        import google.generativeai as genai
+    except ImportError as exc:
+        return None, f"The `google-generativeai` package isn't installed: {exc}"
+
+    genai.configure(api_key=ASSISTANT_API_KEY)
+    prompt = build_ai_estimate_prompt(age, education, years, job_role, location, skills_selected, interests_selected)
+
+    # Reuse whichever candidate model name already worked this session (set
+    # by the AI Career Assistant chat, if used), same pattern as the chat.
+    model_order = st.session_state.get("_working_gemini_model", ASSISTANT_MODEL_CANDIDATES)
+    if isinstance(model_order, str):
+        model_order = [model_order] + [m for m in ASSISTANT_MODEL_CANDIDATES if m != model_order]
+
+    last_exc = None
+    for candidate in model_order:
+        try:
+            gmodel = genai.GenerativeModel(model_name=candidate)
+            response = gmodel.generate_content(prompt)
+            data = _extract_json_object(response.text)
+            st.session_state["_working_gemini_model"] = candidate
+            return data, None
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            continue
+
+    print(f"[Real-Time AI Insights] request failed: {last_exc}")
+    return None, f"Couldn't get a real-time AI estimate right now ({last_exc})."
+
+
 CSS = """
 <style>
 :root {
@@ -1181,8 +1289,9 @@ with st.sidebar:
         <div class="side-box">
         <h4>Why This System</h4>
         <ul>
-            <li>AI-powered salary prediction</li>
+            <li>Trained-model salary prediction</li>
             <li>Personalized career suggestions</li>
+            <li>🔴 Real-time AI salary & career insights</li>
             <li>Location-aware currency conversion</li>
             <li>Chat with an AI career assistant</li>
         </ul>
@@ -1482,6 +1591,74 @@ if page == "Dashboard":
             )
             st.markdown("</div>", unsafe_allow_html=True)
 
+            # ---------------------------------------------------------
+            # Real-Time AI Insights — a fresh, live Gemini call for this
+            # exact profile, separate from the trained joblib models above.
+            # ---------------------------------------------------------
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown("##### 🔴 Real-Time AI Insights")
+            st.caption(
+                "Generated live by an AI model for this exact profile — a market-aware "
+                "cross-check alongside the trained-model prediction above, not a replacement "
+                "for it. Uses one AI call per click."
+            )
+            ai_profile_key = json.dumps(
+                {
+                    "age": age, "education": education, "years": years,
+                    "job_role": job_role, "location": location,
+                    "skills": sorted(skills_selected), "interests": sorted(interests_selected),
+                    "currency": display_currency,
+                },
+                sort_keys=True,
+            )
+            if not ASSISTANT_API_KEY:
+                st.info("The AI assistant isn't configured, so real-time insights aren't available yet.")
+            else:
+                if st.button("Get Real-Time AI Estimate", key="ai_estimate_btn"):
+                    with st.spinner("Asking the AI for a live estimate…"):
+                        ai_result, ai_err = get_ai_realtime_estimate(
+                            age, education, years, job_role, location,
+                            skills_selected, interests_selected,
+                        )
+                    if ai_err:
+                        st.warning(ai_err)
+                        st.session_state.pop("ai_estimate_result", None)
+                    else:
+                        st.session_state["ai_estimate_result"] = ai_result
+                        st.session_state["ai_estimate_key"] = ai_profile_key
+
+                cached_ai = st.session_state.get("ai_estimate_result")
+                cached_ai_key = st.session_state.get("ai_estimate_key")
+                if cached_ai and cached_ai_key == ai_profile_key:
+                    ai_lo = convert_from_usd(cached_ai.get("salary_low_usd", 0), display_currency, rates)
+                    ai_avg = convert_from_usd(cached_ai.get("salary_avg_usd", 0), display_currency, rates)
+                    ai_hi = convert_from_usd(cached_ai.get("salary_high_usd", 0), display_currency, rates)
+
+                    ai_col1, ai_col2 = st.columns([1, 1])
+                    with ai_col1:
+                        st.markdown(f"**AI-estimated range:** {format_money(ai_lo, display_currency)} – {format_money(ai_hi, display_currency)}")
+                        st.markdown(
+                            f"<h3 style='color:#f5921b !important;margin:4px 0;'>{format_money(ai_avg, display_currency)}</h3>",
+                            unsafe_allow_html=True,
+                        )
+                        st.caption(f"Confidence: **{cached_ai.get('confidence', 'n/a')}**")
+                        if cached_ai.get("reasoning"):
+                            st.caption(cached_ai["reasoning"])
+                    with ai_col2:
+                        ai_careers = cached_ai.get("career_recommendations") or []
+                        if ai_careers:
+                            st.markdown("**AI Career Matches**")
+                            for item in ai_careers[:5]:
+                                career_name = item.get("career", "Unknown")
+                                match_pct = item.get("match_percent", 0)
+                                st.write(f"**{career_name}** — {match_pct}% match")
+                                st.progress(min(max(int(match_pct), 0), 100) / 100)
+                                if item.get("reasoning"):
+                                    st.caption(item["reasoning"])
+                elif cached_ai_key and cached_ai_key != ai_profile_key:
+                    st.caption("Profile changed since the last AI estimate — click the button above to refresh it.")
+            st.markdown("</div>", unsafe_allow_html=True)
+
             known_classes = list(Models["career_label_encoder"].classes_) if MODELS_OK else []
             extra_matches = recommend_extended_careers(
                 extended_index, skills_selected, interests_selected,
@@ -1748,6 +1925,10 @@ else:
 - **Currency conversion** — predictions are produced in INR, then converted to the currency
   of the selected country using a live exchange-rate lookup (falling back to fixed
   approximate rates if that lookup is unavailable).
+- **Real-Time AI Insights** — on the Dashboard, after predicting, an optional "Get Real-Time
+  AI Estimate" button calls an AI model live for the exact profile entered, returning a fresh
+  salary range and its own ranked career matches with reasoning — a market-aware cross-check
+  alongside the trained-model numbers above it, not a replacement for them.
 - **AI Career Assistant** — a chat assistant grounded in the vocabulary/classes the
   models were trained on and your most recent in-app prediction.
 
