@@ -22,8 +22,37 @@ st.set_page_config(
 )
 
 
-ASSISTANT_API_KEY = "AIzaSyBFuGLVqKL8tNZnYX4a-RqZm9PfQQfeUXE"
-ASSISTANT_MODEL_NAME = "gemini-2.5-flash-lite"
+def _resolve_assistant_api_key():
+    """Prefer st.secrets / an env var over a key hard-coded in source.
+
+    A real API key sitting in a .py file is a security problem on its own,
+    but it's *also* the most likely reason the assistant is failing here:
+    if this file (or a copy of it) was ever pushed to a public GitHub repo,
+    Google's automated secret scanning typically finds and revokes keys
+    like this within minutes to hours — which produces exactly this
+    symptom (every call fails, no visible reason) with no code bug at all.
+
+    If you're seeing this after pushing to GitHub, treat the key below as
+    burned: generate a fresh one in Google AI Studio, revoke the old one,
+    and put the new one in `.streamlit/secrets.toml` (as GEMINI_API_KEY) or
+    in your host's environment variables — not back in this file.
+    """
+    try:
+        key = st.secrets.get("GEMINI_API_KEY")
+        if key:
+            return key
+    except Exception:
+        pass
+    key = os.environ.get("GEMINI_API_KEY")
+    if key:
+        return key
+    # Last-resort fallback so the app keeps working today; rotate this key.
+    return "AIzaSyBFuGLVqKL8tNZnYX4a-RqZm9PfQQfeUXE"
+
+
+ASSISTANT_API_KEY = _resolve_assistant_api_key()
+# Fixed to a single model on purpose — no fallback to other Gemini models.
+ASSISTANT_MODEL_CANDIDATES = ["gemini-2.5-flash"]
 
 
 def semicolon_tokenizer(text):
@@ -237,6 +266,137 @@ def _valid_prebuilt_index(obj):
     return bool(vocab)
 
 
+# ---------------------------------------------------------------------------
+# Bundled, no-network fallback career dataset
+# ---------------------------------------------------------------------------
+# Root cause of "every profile recommends the same career": the ONLY source
+# of skill/interest-based variety was the extended-careers dataset on
+# Google Drive. Whenever that download failed (quota hit, bad sharing
+# link, HTML warning page, etc. — see all the handling above), extended_index
+# came back None, coverage_scores in blended_career_matches() was empty for
+# every career, and the app silently fell back to the trained classifier
+# alone — which, per its own class list, is easy to dominate with a single
+# class on a small/imbalanced training sample. Same inputs in, same one
+# career out, no matter what you picked.
+#
+# This table ships inside the app itself (no download, can't fail, can't go
+# stale) and covers the full ALL_JOB_ROLES list. It's merged into whatever
+# the Drive-based index does or doesn't provide, so skill/interest-driven
+# variety no longer has a single external point of failure. Skill/interest
+# tags are drawn from EXTRA_SKILLS / EXTRA_INTERESTS so they line up with
+# what the multiselect widgets actually offer. Salary figures reuse the
+# same broad JOB_ROLE_INFO USD benchmarks (roughly converted to INR) — they
+# are approximations for relative ranking, not precise figures, consistent
+# with every other disclaimer in this file.
+STATIC_CAREER_PROFILES = {
+    "Software Engineer": (["python", "java", "git", "system design", "testing", "agile"], ["software engineering", "coding", "technology"], "Builds and maintains software systems and applications."),
+    "Data Scientist": (["python", "machine learning", "statistics", "pandas", "data analysis"], ["data science", "ai", "analytics"], "Extracts insights and builds predictive models from data."),
+    "Project Manager": (["project management", "communication", "leadership", "agile"], ["management", "business"], "Plans and coordinates projects, timelines, and teams."),
+    "Data administrator": (["sql", "nosql", "data analysis", "excel"], ["data analysis", "technology"], "Maintains and organizes an organization's databases."),
+    "Machine Learning Engineer": (["python", "machine learning", "deep learning", "tensorflow", "pytorch"], ["ai", "data science", "technology"], "Designs and deploys machine learning systems in production."),
+    "AI Researcher": (["machine learning", "deep learning", "research", "statistics"], ["ai", "research", "academia"], "Researches new methods and models in artificial intelligence."),
+    "Data Analyst": (["sql", "excel", "data analysis", "tableau", "power bi"], ["data analytics", "analytics", "business"], "Analyzes data to answer business questions and build reports."),
+    "Data Engineer": (["python", "sql", "spark", "hadoop", "etl", "big data"], ["data science", "technology", "engineering"], "Builds pipelines and infrastructure for large-scale data."),
+    "Database Administrator": (["sql", "nosql", "linux", "networking"], ["technology", "data analysis"], "Manages, tunes, and secures production databases."),
+    "DevOps Engineer": (["docker", "kubernetes", "ci/cd", "aws", "terraform", "linux"], ["software engineering", "technology", "automation"], "Automates deployment pipelines and infrastructure."),
+    "Site Reliability Engineer": (["kubernetes", "docker", "linux", "aws", "devops"], ["technology", "engineering", "automation"], "Keeps large-scale systems reliable, observable, and fast."),
+    "Cloud Architect": (["aws", "azure", "gcp", "cloud computing", "system design"], ["technology", "engineering"], "Designs cloud infrastructure and migration strategy."),
+    "Solutions Architect": (["system design", "aws", "azure", "software design"], ["technology", "business", "engineering"], "Designs technical solutions that meet business requirements."),
+    "Full Stack Developer": (["javascript", "react", "node.js", "html", "css", "sql"], ["web development", "coding", "software engineering"], "Builds both the front-end and back-end of web applications."),
+    "Backend Developer": (["python", "java", "node.js", "sql", "rest api", "microservices"], ["software engineering", "web development"], "Builds server-side logic, APIs, and data layers."),
+    "Frontend Developer": (["javascript", "react", "html", "css", "ui design"], ["web design", "user experience", "coding"], "Builds the user-facing interface of websites and apps."),
+    "Mobile App Developer": (["swift", "kotlin", "mobile app development", "android", "ios development"], ["mobile apps", "technology", "coding"], "Builds native or cross-platform mobile applications."),
+    "Game Developer": (["c++", "unity", "game development", "c#"], ["gaming", "technology", "entertainment"], "Builds gameplay systems and mechanics for video games."),
+    "QA Engineer": (["testing", "quality assurance", "ci/cd", "agile"], ["software engineering", "technology"], "Tests software to find bugs before release."),
+    "Systems Administrator": (["linux", "networking", "cybersecurity", "cloud computing"], ["technology", "security"], "Maintains servers, networks, and IT infrastructure."),
+    "Network Engineer": (["networking", "linux", "cybersecurity", "cloud computing"], ["technology", "telecom"], "Designs and maintains computer networks."),
+    "Cybersecurity Analyst": (["cybersecurity", "penetration testing", "networking", "linux"], ["security", "cybersecurity", "technology"], "Monitors and defends systems against security threats."),
+    "Security Engineer": (["cybersecurity", "penetration testing", "cloud computing", "devops"], ["security", "cybersecurity", "engineering"], "Builds and hardens secure systems and infrastructure."),
+    "IT Support Specialist": (["networking", "linux", "testing"], ["technology"], "Troubleshoots hardware, software, and network issues for users."),
+    "Technical Writer": (["technical writing", "communication", "research"], ["writing", "technology", "content"], "Writes documentation, manuals, and technical guides."),
+    "Research Scientist": (["research", "statistics", "data analysis"], ["research", "academia", "innovation"], "Conducts original research in a scientific or technical field."),
+    "Statistician": (["statistics", "statistical analysis", "r", "data analysis"], ["statistics", "analytics", "research"], "Applies statistical methods to analyze and interpret data."),
+    "Blockchain Developer": (["blockchain", "python", "javascript", "cybersecurity"], ["technology", "finance", "innovation"], "Builds decentralized applications and smart contracts."),
+    "UI/UX Designer": (["ui design", "ux design", "figma", "wireframing", "prototyping"], ["design", "user experience", "arts"], "Designs how digital products look and feel to use."),
+    "Graphic Designer": (["graphic design", "photoshop", "illustrator"], ["design", "arts", "media"], "Creates visual content for print and digital media."),
+    "Product Designer": (["ui design", "ux design", "prototyping", "user research"], ["design", "user experience", "innovation"], "Designs end-to-end product experiences with user research."),
+    "Interior Designer": (["graphic design", "prototyping"], ["design", "arts", "architecture"], "Designs functional and aesthetic interior spaces."),
+    "Product Manager": (["product management", "communication", "leadership", "business analysis"], ["business", "management", "technology"], "Defines product strategy and coordinates its delivery."),
+    "Program Manager": (["project management", "leadership", "communication"], ["management", "business"], "Coordinates multiple related projects toward shared goals."),
+    "Scrum Master": (["agile", "scrum", "project management", "communication"], ["management", "software engineering"], "Facilitates agile teams and removes delivery blockers."),
+    "Operations Manager": (["project management", "leadership", "budgeting"], ["management", "business", "logistics"], "Oversees daily operations and process efficiency."),
+    "Engineering Manager": (["leadership", "system design", "project management", "communication"], ["engineering", "management", "technology"], "Leads engineering teams and technical direction."),
+    "Business Analyst": (["business analysis", "data analysis", "excel", "communication"], ["business", "analytics"], "Bridges business needs and technical solutions."),
+    "Financial Analyst": (["financial analysis", "excel", "statistics", "data analysis"], ["finance", "analytics", "business"], "Analyzes financial data to guide business decisions."),
+    "Accountant": (["accounting", "budgeting", "excel"], ["finance", "business"], "Manages financial records, reporting, and compliance."),
+    "Investment Banker": (["financial analysis", "negotiation", "excel"], ["finance", "business", "venture capital"], "Advises on capital raising, M&A, and financial deals."),
+    "Supply Chain Analyst": (["data analysis", "excel", "project management"], ["logistics", "business", "manufacturing"], "Optimizes logistics, inventory, and supplier processes."),
+    "Consultant": (["business analysis", "communication", "leadership", "negotiation"], ["business", "management", "innovation"], "Advises organizations on strategy and problem-solving."),
+    "Entrepreneur": (["leadership", "negotiation", "communication", "project management"], ["entrepreneurship", "business", "innovation"], "Builds and runs a new business venture."),
+    "HR Manager": (["communication", "leadership", "negotiation"], ["management", "business"], "Manages hiring, culture, and employee relations."),
+    "Recruiter": (["communication", "negotiation", "public speaking"], ["business", "management"], "Sources and hires talent for an organization."),
+    "Marketing Manager": (["marketing", "digital marketing", "seo", "communication"], ["marketing", "business", "media"], "Plans and leads marketing strategy and campaigns."),
+    "Digital Marketing Specialist": (["digital marketing", "seo", "social media marketing", "email marketing"], ["marketing", "social media", "media"], "Runs online marketing campaigns across digital channels."),
+    "Content Writer": (["content writing", "copywriting", "seo"], ["writing", "content", "media"], "Writes articles, copy, and content for audiences online."),
+    "Sales Executive": (["sales", "negotiation", "communication"], ["business", "marketing"], "Sells products or services directly to customers."),
+    "Sales Manager": (["sales", "leadership", "negotiation"], ["business", "management"], "Leads a sales team toward revenue targets."),
+    "Customer Success Manager": (["communication", "negotiation", "project management"], ["business", "management"], "Helps customers get value from a product post-sale."),
+    "Legal Counsel": (["negotiation", "communication", "research"], ["law", "business", "policy"], "Provides legal advice and manages compliance risk."),
+    "Nurse": (["communication", "research"], ["healthcare", "public health"], "Provides direct patient care and support."),
+    "Physician": (["research", "communication"], ["healthcare", "public health", "biotech"], "Diagnoses and treats patients as a medical doctor."),
+    "Pharmacist": (["research", "quality assurance"], ["healthcare", "biotech", "public health"], "Dispenses medication and advises on drug safety."),
+    "Teacher": (["teaching", "communication", "public speaking"], ["education", "academia"], "Teaches students in a school or classroom setting."),
+    "Professor": (["teaching", "research", "public speaking"], ["academia", "education", "research"], "Teaches and researches at a college or university."),
+    "Civil Engineer": (["system design", "project management"], ["engineering", "architecture", "sustainability"], "Designs and oversees construction of infrastructure."),
+    "Mechanical Engineer": (["system design", "testing", "matlab"], ["engineering", "robotics", "manufacturing"], "Designs and tests mechanical systems and machines."),
+    "Electrical Engineer": (["embedded systems", "iot", "matlab", "testing"], ["engineering", "electronics", "robotics"], "Designs electrical systems, circuits, and devices."),
+    "Architect": (["prototyping", "system design"], ["architecture", "design", "arts"], "Designs buildings and physical spaces."),
+    "Journalist": (["content writing", "communication", "research"], ["journalism", "writing", "media"], "Researches and reports news stories."),
+    "Photographer": (["photoshop", "illustrator"], ["photography", "arts", "media"], "Captures and edits photographs professionally."),
+    "Video Editor": (["motion design", "photoshop"], ["media", "film", "entertainment"], "Edits and produces video content."),
+    "Chef": ([], ["food", "hospitality"], "Prepares and oversees the creation of food dishes."),
+}
+
+
+def _static_career_dataframe():
+    rows = []
+    for role, (skills, interests, desc) in STATIC_CAREER_PROFILES.items():
+        rows.append({
+            "career": role,
+            "skills": ";".join(skills),
+            "interests": ";".join(interests),
+            "description": desc,
+            # Rough USD->INR approximation of the JOB_ROLE_INFO benchmark,
+            # for relative display only — see disclaimers near JOB_ROLE_INFO.
+            "avg_salary_inr": JOB_ROLE_INFO.get(role, 60000) * 83.0,
+        })
+    return pd.DataFrame(rows)
+
+
+def _build_tfidf_index(df):
+    corpus = (df["skills"].str.replace(";", " ", regex=False) + " " + df["interests"].str.replace(";", " ", regex=False)).tolist()
+    vectorizer = TfidfVectorizer(lowercase=True)
+    matrix = vectorizer.fit_transform(corpus)
+    return {"df": df, "vectorizer": vectorizer, "matrix": matrix}
+
+
+def _merge_static_fallback(index):
+    """Guarantee the returned index always has broad, varied skill/interest
+    coverage, regardless of whether the Google Drive dataset loaded. If
+    Drive succeeded, this only *adds* careers it didn't already cover; if
+    Drive failed entirely, this becomes the whole dataset instead of None."""
+    static_df = _ensure_extended_columns(_static_career_dataframe())
+    if index is None or not _valid_prebuilt_index(index):
+        return _build_tfidf_index(static_df)
+    df = index["df"]
+    have = set(df["career"].astype(str).str.strip().str.lower())
+    extra = static_df[~static_df["career"].str.strip().str.lower().isin(have)]
+    if extra.empty:
+        return index
+    merged_df = pd.concat([df, extra], ignore_index=True)
+    return _build_tfidf_index(merged_df)
+
+
 @st.cache_resource(show_spinner="Loading extended career dataset…")
 def load_extended_career_index():
     """Load extended career index with these behaviors:
@@ -251,7 +411,11 @@ def load_extended_career_index():
     "empty vocabulary; perhaps the documents only contain stop words" error
     (an HTML warning page has no skills/interests columns, so every row's
     text ended up blank before it ever reached the vectorizer).
-    The function always returns either an index dict {'df','vectorizer','matrix'} or None.
+    A bundled, no-network fallback dataset (STATIC_CAREER_PROFILES) is always
+    merged into the result via _merge_static_fallback(), so this function
+    never returns None or a single-career-dominated dataset purely because
+    a Google Drive download failed — see the comment above
+    STATIC_CAREER_PROFILES for why that mattered.
     """
     # 1) Try local cache first, but only trust it if it's genuinely usable.
     if os.path.exists(EXTENDED_INDEX_CACHE_PATH):
@@ -259,7 +423,7 @@ def load_extended_career_index():
             cached = joblib.load(EXTENDED_INDEX_CACHE_PATH)
             if _valid_prebuilt_index(cached):
                 cached["df"] = _ensure_extended_columns(cached["df"])
-                return cached
+                return _merge_static_fallback(cached)
         except Exception:
             pass
 
@@ -269,7 +433,7 @@ def load_extended_career_index():
         index = load_joblib_from_drive(EXTENDED_INDEX_JOBLIB_URL, cache_path=EXTENDED_INDEX_CACHE_PATH)
         if _valid_prebuilt_index(index):
             index["df"] = _ensure_extended_columns(index["df"])
-            return index
+            return _merge_static_fallback(index)
         st.warning("The prebuilt career index joblib didn't contain a usable vocabulary — rebuilding from the CSV instead.")
     except Exception as exc:
         st.info(f"Couldn't load the prebuilt career index ({exc}); building it from the CSV instead.")
@@ -308,7 +472,7 @@ def load_extended_career_index():
 
     except Exception as exc:
         st.warning(f"Couldn't load the extended careers dataset: {exc}")
-        return None
+        return _merge_static_fallback(None)
 
     # Ensure every column the rest of the app relies on exists, with safe
     # defaults/types (covers a CSV that doesn't include every optional
@@ -334,7 +498,9 @@ def load_extended_career_index():
         index = {"df": df, "vectorizer": vectorizer, "matrix": matrix}
     except Exception as exc:
         st.warning(f"Failed to build TF-IDF index from extended careers dataset: {exc}")
-        return None
+        return _merge_static_fallback(None)
+
+    index = _merge_static_fallback(index)
 
     # Cache locally for future runs (best-effort)
     try:
@@ -382,21 +548,6 @@ _LOC_CODE = {name: i for i, name in enumerate(LOCATIONS)}
 # ---------------------------------------------------------------------------
 # Country average-salary index
 # ---------------------------------------------------------------------------
-# The regression model only ever saw four "Location" values during training
-# (India / UK / USA / Remote). Previously, picking anything else silently
-# extended the trained location code by +1 -- a meaningless extrapolation
-# that didn't actually reflect how much more or less that country typically
-# pays. Instead, every other country below is scaled off the model's
-# India-based prediction using that country's approximate average annual
-# salary (USD) relative to India's, so the overall salary *level* tracks
-# real-world cost/pay differences while the model still supplies the shape
-# of the curve (role, education, experience).
-#
-# Figures are broad, general-knowledge approximations of national average
-# earnings -- NOT tech-salary-specific and NOT live data. They exist only to
-# set a relative scale between countries. Swap in an authoritative source
-# (World Bank, ILO, national statistics office) if you need this to be
-# precise for a real deployment.
 COUNTRY_INFO = {
     "India":         {"currency": "INR", "avg_salary_usd": 10000},
     "USA":           {"currency": "USD", "avg_salary_usd": 65000},
@@ -450,26 +601,12 @@ ALL_COUNTRIES = sorted(COUNTRY_INFO.keys())
 
 
 def country_relative_index(country, base_country="India"):
-    """How much a country's average salary compares to the base country's
-    (1.0 = same level, 2.0 = twice as high, 0.5 = half, etc.)."""
     base = COUNTRY_INFO.get(base_country, {}).get("avg_salary_usd", 10000)
     val = COUNTRY_INFO.get(country, {}).get("avg_salary_usd", base)
     return val / base if base else 1.0
 
 
 def predict_salary_for_country(models, years_experience, education_level, job_role, country):
-    """Predict a salary (in INR) for any country.
-
-    For the four locations the regression model actually saw in training
-    (India / UK / USA / Remote) this calls the model directly. For every
-    other country, it takes the model's India-based prediction (which
-    already reflects role, education, and experience) and rescales it by
-    that country's average-salary index relative to India, since the model
-    itself has no notion of, say, Germany or Nigeria.
-
-    Returns (salary_inr, method) where method is "model" or "scaled" so the
-    UI can be transparent about which one produced a given number.
-    """
     if country in LOCATIONS:
         return predict_salary(models, years_experience, education_level, job_role, country), "model"
     base_inr = predict_salary(models, years_experience, education_level, job_role, "India")
@@ -477,27 +614,12 @@ def predict_salary_for_country(models, years_experience, education_level, job_ro
     return base_inr * idx, "scaled"
 
 
-# ---------------------------------------------------------------------------
-# Job role pay-level index
-# ---------------------------------------------------------------------------
-# The regression model only ever saw four "JobRole" values during training
-# (Data Scientist / Project Manager / Software Engineer / Data administrator).
-# For every other role below, the same relative-scaling approach used for
-# countries is applied: predict the anchor role ("Software Engineer") for
-# the chosen location, then scale that number by the new role's approximate
-# pay level relative to the anchor role, so the prediction reflects how
-# that field typically pays rather than a meaningless extrapolated model
-# category. Figures are broad, general-knowledge benchmarks (global,
-# tech-skewed where relevant) -- NOT live data -- and exist only to set a
-# relative scale between roles.
 JOB_ROLE_ANCHOR = "Software Engineer"
 JOB_ROLE_INFO = {
-    # Roles the model was actually trained on
     "Software Engineer": 70000,
     "Data Scientist": 75000,
     "Project Manager": 68000,
     "Data administrator": 55000,
-    # Tech / data
     "Machine Learning Engineer": 95000,
     "AI Researcher": 130000,
     "Data Analyst": 60000,
@@ -522,18 +644,15 @@ JOB_ROLE_INFO = {
     "Research Scientist": 90000,
     "Statistician": 70000,
     "Blockchain Developer": 90000,
-    # Design
     "UI/UX Designer": 65000,
     "Graphic Designer": 48000,
     "Product Designer": 80000,
     "Interior Designer": 50000,
-    # Product / program / management
     "Product Manager": 95000,
     "Program Manager": 90000,
     "Scrum Master": 70000,
     "Operations Manager": 72000,
     "Engineering Manager": 120000,
-    # Business / finance
     "Business Analyst": 62000,
     "Financial Analyst": 65000,
     "Accountant": 50000,
@@ -541,7 +660,6 @@ JOB_ROLE_INFO = {
     "Supply Chain Analyst": 60000,
     "Consultant": 85000,
     "Entrepreneur": 60000,
-    # People / marketing / sales
     "HR Manager": 65000,
     "Recruiter": 50000,
     "Marketing Manager": 70000,
@@ -550,7 +668,6 @@ JOB_ROLE_INFO = {
     "Sales Executive": 55000,
     "Sales Manager": 80000,
     "Customer Success Manager": 65000,
-    # Other professional fields
     "Legal Counsel": 100000,
     "Nurse": 55000,
     "Physician": 180000,
@@ -566,38 +683,16 @@ JOB_ROLE_INFO = {
     "Video Editor": 45000,
     "Chef": 40000,
 }
-# Union of the model's own trained roles with the broader benchmark list
-# above, so the UI can offer a much wider set of job roles than the model
-# was originally trained on.
 ALL_JOB_ROLES = sorted(set(JOB_ROLES) | set(JOB_ROLE_INFO.keys()))
 
 
 def role_relative_index(job_role, base_role=JOB_ROLE_ANCHOR):
-    """How much a role's typical pay compares to the anchor role's
-    (1.0 = same level, 2.0 = twice as high, 0.5 = half, etc.)."""
     base = JOB_ROLE_INFO.get(base_role, 70000)
     val = JOB_ROLE_INFO.get(job_role, base)
     return val / base if base else 1.0
 
 
 def predict_salary_full(models, years_experience, education_level, job_role, location):
-    """Predict a salary (in INR) for ANY job role + location combination.
-
-    - job_role is one of the model's four trained roles: delegates straight
-      to predict_salary_for_country, which itself calls the model directly
-      for a trained location, or location-scales it otherwise.
-    - job_role is outside the trained set: predicts the anchor role
-      ("Software Engineer") for the requested location (model or
-      location-scaled, as above), then scales that number by job_role's
-      pay-level index relative to the anchor role.
-
-    Returns (salary_inr, method) where method is one of:
-      "model"                    — trained role + trained location
-      "scaled"                   — trained role, location scaled
-      "role_scaled"              — role scaled, trained location
-      "role_and_location_scaled" — both role and location scaled
-    so the UI can explain exactly which extrapolation(s) produced a number.
-    """
     if job_role in JOB_ROLES:
         return predict_salary_for_country(models, years_experience, education_level, job_role, location)
 
@@ -609,16 +704,6 @@ def predict_salary_full(models, years_experience, education_level, job_role, loc
     return base_inr * idx, method
 
 
-# ---------------------------------------------------------------------------
-# Expanded skill / interest tag library
-# ---------------------------------------------------------------------------
-# The trained vectorizers only recognize whatever vocabulary was present in
-# the original training data. That's fine for the classifier itself (extra
-# tags outside its vocabulary are simply ignored by that specific model),
-# but it made the multiselect widgets feel very limited. These lists widen
-# what's offered in the UI; they also feed the content-based "extended
-# careers" matcher and the blended match score below, both of which pick up
-# tags beyond the classifier's own fixed vocabulary.
 EXTRA_SKILLS = [
     "python", "java", "javascript", "typescript", "c++", "c#", "go", "rust",
     "kotlin", "swift", "php", "ruby", "r", "scala", "matlab", "sql", "nosql",
@@ -675,10 +760,6 @@ def _merged_tag_vocab(models_vectorizer_key, extra_list):
 ALL_SKILL_TAGS = _merged_tag_vocab("skills_vectorizer", EXTRA_SKILLS)
 ALL_INTEREST_TAGS = _merged_tag_vocab("interests_vectorizer", EXTRA_INTERESTS)
 
-# ---------------------------------------------------------------------------
-# Prediction helpers (same underlying logic as the original script)
-# ---------------------------------------------------------------------------
-
 
 def predict_career(models, age, education, skills_str, interests_str):
     skills_list = [s.strip() for s in skills_str.split(";") if s.strip()]
@@ -724,11 +805,6 @@ def predict_career(models, age, education, skills_str, interests_str):
 
 
 def _coverage_score(selected_set, required_tags_str):
-    """What fraction of a career's typical skills/interests you've actually
-    selected. Coverage-based (not similarity-based) on purpose: it only
-    asks 'how much of what this career needs do you have', so it isn't
-    diluted by extra, unrelated tags you also picked -- which is exactly
-    the behavior that was missing before."""
     required = {t.strip().lower() for t in str(required_tags_str).split(";") if t.strip()}
     if not required:
         return 0.0
@@ -736,28 +812,6 @@ def _coverage_score(selected_set, required_tags_str):
 
 
 def blended_career_matches(models, extended_index, age, education, skills_selected, interests_selected, top_n=5):
-    """Score every career by how much of its typical skill/interest set you
-    cover, then use the trained classifier's relative confidence to break
-    ties among equally-covered careers. Returns [(career, match_score,
-    raw_classifier_prob), ...] with match_score in [0, 0.97].
-
-    Why coverage instead of raw classifier probability or cosine similarity:
-    - The classifier has to spread a probability of 1.0 across *every*
-      class it was trained on, so even a great match rarely tops 30-40%
-      once there are a dozen-plus classes -- that's normal multi-class
-      behavior, not a bug, but it reads as "broken" to a user.
-    - Cosine similarity has the same shape problem (it's still a
-      normalized share, not an absolute "how good is this match").
-    - Coverage is absolute: if you've selected every skill and interest a
-      career typically needs, its score approaches the cap regardless of
-      what else you also selected or how many other careers exist. Select
-      literally everything in the app, and — correctly — nearly every
-      career will score very high, because by definition you now have
-      every skill for every one of them; the classifier's relative
-      confidence then decides the ordering among those top ties.
-    - Capped at 97%, never 100%, because this is still a guidance tool,
-      not a certainty claim.
-    """
     skills_str = ";".join(skills_selected)
     interests_str = ";".join(interests_selected)
     skills_set = {s.strip().lower() for s in skills_selected}
@@ -767,9 +821,6 @@ def blended_career_matches(models, extended_index, age, education, skills_select
     if MODELS_OK:
         _, ranked = predict_career(models, age, education, skills_str, interests_str)
         clf_scores = {c: float(p) for c, p in ranked}
-    # Rescale relative to the classifier's OWN top pick (so it can still
-    # rank/break ties meaningfully) instead of using its raw, many-class-
-    # diluted probability directly.
     max_clf = max(clf_scores.values()) if clf_scores else 0.0
     clf_rank_conf = {c: (p / max_clf if max_clf > 0 else 0.0) for c, p in clf_scores.items()}
 
@@ -798,9 +849,6 @@ def blended_career_matches(models, extended_index, age, education, skills_select
         elif coverage is not None:
             blended[career] = coverage
         else:
-            # No coverage data for this career (extended dataset didn't
-            # have it) -- fall back to a damped classifier signal so it
-            # doesn't compete unfairly against coverage-backed scores.
             blended[career] = 0.5 * rank_conf
 
     ranked_blended = sorted(blended.items(), key=lambda x: -x[1])[:top_n]
@@ -808,9 +856,6 @@ def blended_career_matches(models, extended_index, age, education, skills_select
 
 
 def _code_for(value, code_map):
-    """Look up the trained code for a value, or extend the mapping for a
-    custom/'Other' value the model never saw during training. Custom
-    values are an extrapolation and may be less reliable."""
     if value in code_map:
         return code_map[value]
     return max(code_map.values()) + 1
@@ -835,10 +880,6 @@ def salary_growth_curve(models, education_level, job_role, location, max_years=2
 
 
 def reference_average_salary(models, years_experience, education_level, location):
-    """Average predicted salary across all trained job roles, used only to
-    judge whether the user's specific prediction sits above/below that
-    average — an internal reference point, not a claim about real market
-    averages."""
     vals = [
         predict_salary_for_country(models, years_experience, education_level, role, location)[0]
         for role in JOB_ROLES
@@ -846,10 +887,6 @@ def reference_average_salary(models, years_experience, education_level, location
     return float(np.mean(vals))
 
 
-# ---------------------------------------------------------------------------
-# Currency handling — salary model output is treated as INR (the dataset's
-# base currency), then converted for display based on the selected country.
-# ---------------------------------------------------------------------------
 CURRENCY_BY_LOCATION = {country: info["currency"] for country, info in COUNTRY_INFO.items()}
 CURRENCY_SYMBOLS = {
     "INR": "₹", "USD": "$", "GBP": "£", "EUR": "€", "AUD": "A$", "CAD": "C$",
@@ -861,9 +898,6 @@ CURRENCY_SYMBOLS = {
     "ZAR": "R", "NGN": "₦", "KES": "KSh", "EGP": "E£", "BRL": "R$",
     "MXN": "$", "ARS": "$", "CLP": "$", "COP": "$",
 }
-# Offline fallback (approximate, INR = 1 base unit). Used only if the live
-# rate lookup fails or is unreachable — the live lookup (open.er-api.com)
-# covers essentially all of these currencies under normal conditions.
 FALLBACK_RATES_FROM_INR = {
     "INR": 1.0, "USD": 0.012, "GBP": 0.0095, "EUR": 0.011, "AUD": 0.018,
     "CAD": 0.0165, "NZD": 0.0196, "CHF": 0.0105, "SEK": 0.125, "NOK": 0.128,
@@ -878,7 +912,6 @@ FALLBACK_RATES_FROM_INR = {
 
 @st.cache_data(ttl=6 * 60 * 60, show_spinner=False)
 def get_exchange_rates():
-    """Live INR -> other currency rates, with an offline fallback."""
     try:
         resp = requests.get("https://open.er-api.com/v6/latest/INR", timeout=4)
         resp.raise_for_status()
@@ -906,9 +939,6 @@ def format_money(amount, currency):
     return f"{symbol}{amount:,.2f}"
 
 
-# ---------------------------------------------------------------------------
-# Styling — dark navy sidebar / light dashboard, per the reference mockup
-# ---------------------------------------------------------------------------
 CSS = """
 <style>
 :root {
@@ -927,18 +957,9 @@ CSS = """
     --accent-red: #dc2626;
 }
 
-/* ---- App shell ---------------------------------------------------- */
 header[data-testid="stHeader"] { background: transparent; }
 .stApp { background: var(--bg) !important; }
 
-/* ---- Force readable, high-contrast text everywhere in the main
-   content area, regardless of the viewer's light/dark browser theme.
-   Scoped to .block-container so the sidebar (styled separately below)
-   is untouched, and given !important so it always wins over Streamlit's
-   own theme-driven defaults that caused the invisible-text bug. ------ */
-/* Note: intentionally NOT touching bare <span> here — chips and skill
-   pills use <span> with their own explicit accent colors below, and
-   giving those a higher-specificity blanket override would clobber them. */
 .block-container [data-testid="stMarkdownContainer"],
 .block-container [data-testid="stMarkdownContainer"] p,
 .block-container [data-testid="stMarkdownContainer"] li,
@@ -958,10 +979,6 @@ header[data-testid="stHeader"] { background: transparent; }
 .block-container h1, .block-container h2, .block-container h3,
 .block-container h4, .block-container h5 { color: var(--text-dark) !important; }
 
-/* Pin every input control to an explicit dark-navy pill style so it no
-   longer depends on the visitor's OS light/dark preference — that
-   mismatch (theme-driven text color vs. our forced-light card bg) was
-   the root cause of text disappearing. */
 .block-container [data-testid="stNumberInput"] input,
 .block-container [data-testid="stTextInput"] input,
 .block-container [data-baseweb="select"] > div,
@@ -981,14 +998,10 @@ header[data-testid="stHeader"] { background: transparent; }
     background: var(--navy-light) !important;
     border-color: rgba(255,255,255,0.08) !important;
 }
-/* Multiselect chips (already-picked skills/interests) */
 .block-container [data-baseweb="tag"] {
     background: var(--accent-blue) !important;
     color: #ffffff !important;
 }
-/* Dropdown option lists render in a portal outside .block-container.
-   Pin that popover to the dark card style too, so it doesn't flash as
-   a stray white box against the rest of the dark UI. */
 div[data-baseweb="popover"], div[data-baseweb="menu"] {
     background: var(--card) !important;
 }
@@ -1000,8 +1013,6 @@ div[data-baseweb="popover"] li:hover, div[data-baseweb="menu"] li:hover {
     background: rgba(255,255,255,0.06) !important;
 }
 
-/* Chat bubbles (AI Career Assistant) — assistant on the left, user on
-   the right, each as a rounded bubble instead of a plain full-width box. */
 .block-container [data-testid="stChatMessage"] {
     background: transparent !important;
     border: none !important;
@@ -1045,11 +1056,8 @@ div[data-baseweb="popover"] li:hover, div[data-baseweb="menu"] li:hover {
 }
 .block-container [data-testid="stChatInput"] textarea::placeholder { color: #a9b4d4 !important; }
 
-/* st.info / st.warning / st.error banners keep readable text on their own
-   pastel background no matter the viewer's theme. */
 .block-container [data-testid="stAlert"] * { color: var(--text-dark) !important; }
 
-/* ---- Sidebar -------------------------------------------------------- */
 section[data-testid="stSidebar"] {
     background: linear-gradient(180deg, var(--navy) 0%, var(--navy-light) 100%);
 }
@@ -1071,20 +1079,10 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label {
 section[data-testid="stSidebar"] div[role="radiogroup"] label:hover {
     background: rgba(255,255,255,0.14);
 }
-/* Hide the visual radio dot entirely — the nav now reads as plain
-   clickable pills, with the selected page shown via the highlighted
-   background/left-bar below rather than a checked circle. Streamlit's
-   radio renders the dot as the label's first child div (BaseWeb) with
-   the native input hidden inside it for a11y — hiding that first child
-   removes the dot while the label still forwards clicks to the input,
-   so selection keeps working. */
 section[data-testid="stSidebar"] div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child,
 section[data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {
     display: none;
 }
-/* Highlight the whole pill (not just the dot) for the selected page,
-   using :has() — supported in all current evergreen browsers. Falls
-   back gracefully to the plain pill + recolored dot above if not. */
 section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {
     background: linear-gradient(90deg, rgba(20,184,196,0.28), rgba(20,184,196,0.08));
     border-color: var(--accent-teal);
@@ -1095,7 +1093,6 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     font-weight: 700;
 }
 
-/* ---- Header banner --------------------------------------------------- */
 .app-header {
     background: linear-gradient(90deg, var(--navy) 0%, var(--navy-light) 100%);
     padding: 18px 26px;
@@ -1105,18 +1102,11 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     align-items: center;
     margin-bottom: 18px;
 }
-/* Note the extra .block-container [data-testid="stMarkdownContainer"]
-   prefix here: without it, the earlier blanket "force every heading to
-   --text-dark" rule above has equal-or-higher specificity and — since
-   both use !important — silently wins by source order, leaving this
-   heading a near-invisible dark-on-dark navy. Matching that prefix
-   restores the intended white header text. */
 .block-container [data-testid="stMarkdownContainer"] .app-header h1,
 .app-header h1 { margin: 0; font-size: 1.5rem; color: #ffffff !important; }
 .block-container [data-testid="stMarkdownContainer"] .app-header span.tag,
 .app-header span.tag { color: #9db3ff !important; font-size: 0.85rem; }
 
-/* ---- Cards ------------------------------------------------------------ */
 .card {
     background: var(--card);
     border: 1px solid var(--card-border);
@@ -1126,7 +1116,6 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     margin-bottom: 16px;
 }
 
-/* ---- KPI chips ---------------------------------------------------------- */
 .chip {
     border-radius: 12px;
     padding: 10px 14px;
@@ -1139,7 +1128,6 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
 .chip-orange, .chip-orange * { background: rgba(245,146,27,0.18);  color: #fbbf6d !important; }
 .chip-teal,   .chip-teal   * { background: rgba(20,184,196,0.18);  color: #7fe3ea !important; }
 
-/* ---- Skill / requirement pills ------------------------------------------ */
 .pill, .pill * {
     display: inline-block;
     background: rgba(255,255,255,0.07);
@@ -1151,7 +1139,6 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
 }
 .pill.match, .pill.match * { background: rgba(22,163,74,0.22); color: #6ee0a0 !important; font-weight: 600; }
 
-/* ---- Sidebar info boxes -------------------------------------------------- */
 .side-box {
     background: rgba(255,255,255,0.05);
     border: 1px solid rgba(255,255,255,0.06);
@@ -1165,7 +1152,6 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
 .disclaimer { border-left: 3px solid #f87171; }
 .disclaimer h4 { color: #fca5a5 !important; }
 
-/* ---- Buttons -------------------------------------------------------------- */
 .block-container .stButton button {
     background: var(--accent-blue) !important;
     color: #ffffff !important;
@@ -1180,9 +1166,6 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
 """
 st.markdown(CSS, unsafe_allow_html=True)
 
-# ---------------------------------------------------------------------------
-# Sidebar
-# ---------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 🤖 Career & Salary AI")
     NAV_ICONS = {"Dashboard": "📊", "AI Career Assistant": "💬", "About System": "ℹ️"}
@@ -1214,9 +1197,6 @@ with st.sidebar:
         demand_roles = JOB_ROLES
     roles_html = "".join(f"<li>{r}</li>" for r in demand_roles)
 
-    # Live benchmark computed by actually running the salary model across
-    # every trained job role (fixed baseline profile), instead of a static
-    # hardcoded figure — so this panel moves whenever the model does.
     benchmark_html = ""
     if MODELS_OK:
         try:
@@ -1227,10 +1207,6 @@ with st.sidebar:
             }
             _top_role = max(_role_salaries, key=_role_salaries.get)
             _low_role = min(_role_salaries, key=_role_salaries.get)
-            # Built as one unbroken line (no embedded newlines/indentation) —
-            # when this got spliced into the outer indented f-string below,
-            # its own indentation pushed it past Markdown's 4-space code-block
-            # threshold, so it rendered as a raw <pre> block instead of HTML.
             benchmark_html = (
                 f'<p style="margin:8px 0 2px 0;">📈 <b>Live benchmark</b> — '
                 f'{_baseline_years} yrs exp, {_baseline_edu}, {_baseline_loc}:</p>'
@@ -1265,9 +1241,6 @@ if not MODELS_OK:
         f"are unavailable right now.\n\nDetails: {MODELS_ERROR}"
     )
 
-# ---------------------------------------------------------------------------
-# Shared header
-# ---------------------------------------------------------------------------
 st.markdown(
     """
     <div class="app-header">
@@ -1278,9 +1251,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ===========================================================================
-# DASHBOARD PAGE
-# ===========================================================================
 if page == "Dashboard":
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("Salary Estimation & Career Recommendation")
@@ -1362,7 +1332,6 @@ if page == "Dashboard":
                 "top_matches": blended_matches,
             }
 
-            # ---- KPI chips row -------------------------------------------------
             c1, c2, c3, c4 = st.columns(4)
             for col, cls, label, value in [
                 (c1, "chip-blue", "Experience", f"{years:g} yrs"),
@@ -1378,7 +1347,6 @@ if page == "Dashboard":
             st.write("")
             left, right = st.columns([1, 1])
 
-            # ---- Predicted salary + gauge --------------------------------------
             with left:
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.markdown(f"##### Predicted Salary ({display_currency})")
@@ -1459,7 +1427,6 @@ if page == "Dashboard":
                 st.plotly_chart(bar_fig, use_container_width=True)
                 st.markdown("</div>", unsafe_allow_html=True)
 
-            # ---- Career recommendations + skills -------------------------------
             with right:
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.markdown("##### Top Career Recommendations")
@@ -1491,7 +1458,6 @@ if page == "Dashboard":
                 )
                 st.markdown("</div>", unsafe_allow_html=True)
 
-            # ---- Career growth trend --------------------------------------------
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.markdown("##### Career Growth Trend")
             g_years, g_salaries_inr = salary_growth_curve(Models, education, job_role, location, max_years=20, step=1)
@@ -1516,8 +1482,6 @@ if page == "Dashboard":
             )
             st.markdown("</div>", unsafe_allow_html=True)
 
-            # ---- Extended, dataset-driven career suggestions --------------------
-            # (extended_index already loaded above, for the blended match score)
             known_classes = list(Models["career_label_encoder"].classes_) if MODELS_OK else []
             extra_matches = recommend_extended_careers(
                 extended_index, skills_selected, interests_selected,
@@ -1546,18 +1510,6 @@ if page == "Dashboard":
     elif predict_clicked and not MODELS_OK:
         st.error("Models aren't loaded, so a prediction can't be made right now.")
 
-    # ---- Model sensitivity diagnostic ---------------------------------
-    # Answers "are my predictions actually changing?" with real numbers
-    # pulled straight from the loaded models — not simulated. Runs the
-    # salary model across every trained Job Role x Location combo (fixed
-    # profile) and the career model across a few very different
-    # skill/interest sets, then flags whether the output is effectively
-    # flat. This exists to separate two very different root causes for
-    # "predictions never change": (a) the app not passing your inputs
-    # through correctly, vs (b) the underlying trained model itself
-    # having weak/near-zero sensitivity to those inputs (common with a
-    # small sample training set) or the extended career dataset failing
-    # to load so the recommender falls back to one dominant class.
     with st.expander("🔍 Why aren't my results changing? (model sensitivity check)"):
         st.caption(
             "This calls the real loaded models across a few different inputs so "
@@ -1614,27 +1566,34 @@ if page == "Dashboard":
                 career_rows.append({"Skills": ", ".join(skl), "Interests": ", ".join(intr), "Top Career": top})
             career_diag_df = pd.DataFrame(career_rows)
             st.dataframe(career_diag_df, use_container_width=True, hide_index=True)
-            if extended_index_diag is None:
-                st.error(
-                    "The extended career dataset (used to make the match score responsive to "
-                    "your exact skills/interests) failed to load — see any warning higher up "
-                    "the page. With it unavailable, the top recommendation falls back to the "
-                    "trained classifier alone, which can look 'stuck' on one class if it was "
-                    "trained on a small/imbalanced sample."
+
+            # load_extended_career_index() now always merges in the bundled,
+            # no-network STATIC_CAREER_PROFILES fallback, so it can no longer
+            # be None — but it's still worth telling you whether the Google
+            # Drive dataset actually loaded, or whether you're running on the
+            # bundled fallback alone (fewer careers, but never "stuck").
+            static_careers = set(STATIC_CAREER_PROFILES.keys())
+            diag_careers = set(extended_index_diag["df"]["career"].astype(str).str.strip()) if extended_index_diag else set()
+            drive_loaded = bool(diag_careers - static_careers)
+            if not drive_loaded:
+                st.warning(
+                    "The Google Drive extended-careers dataset didn't load (see any warning "
+                    "higher up the page) — recommendations are currently running on the "
+                    f"{len(static_careers)}-career fallback dataset bundled in the app itself, "
+                    "instead of your full Drive dataset. Career variety still works (see the "
+                    "table above), just from a smaller pool. Fix the Drive sharing/quota issue "
+                    "to bring back your full dataset."
                 )
-            elif len({row["Top Career"] for row in career_rows}) == 1:
+            if len({row["Top Career"] for row in career_rows}) == 1:
                 st.error(
                     "The top career recommendation is identical across very different "
-                    "skill/interest sets. With the extended dataset loaded, that points to "
-                    "the trained classifier being dominated by one class — again, most "
-                    "likely a small/imbalanced training set rather than an app bug."
+                    "skill/interest sets even with career-matching data loaded. That points to "
+                    "a bug in the matching logic itself, not just missing data — worth "
+                    "reporting/investigating further."
                 )
             else:
                 st.success("The career model does respond to different skills/interests.")
 
-# ===========================================================================
-# AI CAREER ASSISTANT
-# ===========================================================================
 elif page == "AI Career Assistant":
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("AI Career Assistant")
@@ -1699,32 +1658,81 @@ elif page == "AI Career Assistant":
             with st.chat_message("assistant"):
                 placeholder = st.empty()
                 placeholder.markdown("Thinking…")
+                reply = None
+                debug_detail = None
                 try:
                     import google.generativeai as genai
-
-                    genai.configure(api_key=ASSISTANT_API_KEY)
-                    gmodel = genai.GenerativeModel(
-                        model_name=ASSISTANT_MODEL_NAME,
-                        system_instruction=build_system_context(),
+                except ImportError as exc:
+                    debug_detail = (
+                        "ImportError: the `google-generativeai` package isn't installed in "
+                        "this environment. Add `google-generativeai` to requirements.txt and "
+                        f"redeploy.\n\n{exc}"
                     )
+                    reply = "Sorry, I couldn't reach the assistant right now. Please try again in a moment."
+
+                if reply is None:
+                    genai.configure(api_key=ASSISTANT_API_KEY)
                     history = [
                         {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
                         for m in st.session_state["chat_messages"][:-1]
                     ]
-                    chat = gmodel.start_chat(history=history)
-                    response = chat.send_message(user_msg)
-                    reply = response.text
-                except Exception as exc:  # noqa: BLE001
-                    # Never surface raw provider/key details to the end user —
-                    # log the real error server-side only.
-                    print(f"[AI Career Assistant] request failed: {exc}")
-                    reply = "Sorry, I couldn't reach the assistant right now. Please try again in a moment."
+                    system_ctx = build_system_context()
+                    last_exc = None
+                    # Cache whichever candidate model name actually worked, so
+                    # later turns don't re-probe every candidate from scratch.
+                    model_order = st.session_state.get(
+                        "_working_gemini_model", ASSISTANT_MODEL_CANDIDATES
+                    )
+                    if isinstance(model_order, str):
+                        model_order = [model_order] + [m for m in ASSISTANT_MODEL_CANDIDATES if m != model_order]
+                    for candidate in model_order:
+                        try:
+                            gmodel = genai.GenerativeModel(
+                                model_name=candidate,
+                                system_instruction=system_ctx,
+                            )
+                            chat = gmodel.start_chat(history=history)
+                            response = chat.send_message(user_msg)
+                            reply = response.text
+                            st.session_state["_working_gemini_model"] = candidate
+                            break
+                        except Exception as exc:  # noqa: BLE001
+                            last_exc = exc
+                            continue
+
+                    if reply is None:
+                        # Log the real error server-side, and translate the
+                        # most common failure signatures into an actionable
+                        # hint instead of a generic dead end.
+                        print(f"[AI Career Assistant] request failed: {last_exc}")
+                        msg = str(last_exc)
+                        if any(t in msg for t in ("API_KEY_INVALID", "API key not valid", "401", "PERMISSION_DENIED", "403")):
+                            debug_detail = (
+                                "Auth error: the Gemini API key is invalid, revoked, or lacks "
+                                "access to this model. If this key was ever committed to a "
+                                "public repo, Google likely auto-revoked it — generate a new "
+                                "key in Google AI Studio and store it as GEMINI_API_KEY in "
+                                f"Streamlit secrets.\n\n{msg}"
+                            )
+                        elif any(t in msg for t in ("404", "not found", "NOT_FOUND")):
+                            debug_detail = (
+                                "Model-not-found error: none of "
+                                f"{ASSISTANT_MODEL_CANDIDATES} are available to this API key/"
+                                f"project. Check available model names for your account in "
+                                f"Google AI Studio.\n\n{msg}"
+                            )
+                        elif any(t in msg for t in ("429", "quota", "RESOURCE_EXHAUSTED")):
+                            debug_detail = f"Rate-limit/quota error from the Gemini API.\n\n{msg}"
+                        else:
+                            debug_detail = f"Unhandled error calling the Gemini API.\n\n{msg}"
+                        reply = "Sorry, I couldn't reach the assistant right now. Please try again in a moment."
+
                 placeholder.markdown(reply)
+                if debug_detail:
+                    with st.expander("Technical details (visible while debugging — remove for production)"):
+                        st.code(debug_detail)
             st.session_state["chat_messages"].append({"role": "assistant", "content": reply})
 
-# ===========================================================================
-# ABOUT PAGE
-# ===========================================================================
 else:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("About This System")
