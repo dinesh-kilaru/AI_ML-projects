@@ -38,7 +38,7 @@ def _resolve_assistant_api_key():
     in your host's environment variables — not back in this file.
     """
     try:
-        key = st.secrets.get("GEMINI_API_KEY")
+        key = st.secrets.get("AQ.Ab8RN6J6ZSVNaqRvXIZ_o1wOUzgdyiqXajrTzvA5zpoQ0B_n2A")
         if key:
             return key
     except Exception:
@@ -47,7 +47,7 @@ def _resolve_assistant_api_key():
     if key:
         return key
     # Last-resort fallback so the app keeps working today; rotate this key.
-    return "AQ.Ab8RN6J6ZSVNaqRvXIZ_o1wOUzgdyiqXajrTzvA5zpoQ0B_n2A"
+    return None
 
 
 ASSISTANT_API_KEY = _resolve_assistant_api_key()
