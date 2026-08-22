@@ -6,3 +6,4 @@ joblib
 scipy
 requests
 plotly
+google-generativeai
