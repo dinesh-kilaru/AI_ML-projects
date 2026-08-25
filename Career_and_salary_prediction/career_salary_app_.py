@@ -54,6 +54,31 @@ ASSISTANT_API_KEY = _resolve_assistant_api_key()
 # is unavailable for this API key/region.
 ASSISTANT_MODEL_CANDIDATES = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.0-flash"]
 
+# Per-call wall-clock budget for a single Gemini request attempt, in seconds.
+ASSISTANT_CALL_TIMEOUT_S = 20
+
+
+def _call_with_hard_timeout(fn, timeout_s=ASSISTANT_CALL_TIMEOUT_S):
+    """Run fn() with a real wall-clock timeout and raise TimeoutError if it's
+    exceeded. HttpOptions.timeout on the google-genai client *should* cover
+    this on its own, but some SDK versions still hang indefinitely on a
+    stalled socket regardless of that setting (a known upstream issue) — this
+    is the belt-and-braces backstop so the app can never freeze on it. Uses a
+    thread because the underlying HTTP call isn't cancellable, so the stuck
+    call is abandoned (not killed) and the daemon thread is left to finish or
+    die on its own; it does not block the app from moving on.
+    """
+    import concurrent.futures
+    # Deliberately not a `with` block: ThreadPoolExecutor.__exit__ calls
+    # shutdown(wait=True), which would block until the hung thread finishes
+    # (possibly never) and reintroduce the exact freeze this exists to avoid.
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(fn)
+    try:
+        return future.result(timeout=timeout_s)
+    finally:
+        pool.shutdown(wait=False)
+
 
 def semicolon_tokenizer(text):
     """'python;sql;machine learning' -> ['python', 'sql', 'machine learning']"""
@@ -1317,6 +1342,7 @@ def _fetch_independent_ai_opinion(age, education, years, job_role, location, ski
         return None, "No API key is configured for the independent AI."
     try:
         from google import genai
+        from google.genai import types as genai_types
     except ImportError as exc:
         return None, (
             "The `google-genai` package isn't installed in this "
@@ -1356,11 +1382,21 @@ commentary before or after) with exactly these keys:
   rating how well that career fits THIS candidate's profile (skills,
   interests, education, experience), and a one-sentence "why" string
 """
-    client = genai.Client(api_key=ASSISTANT_API_KEY)
+    # 20s per attempt: without an explicit timeout the SDK falls back to a
+    # very long (effectively unbounded on some networks) default, which is
+    # what made this look like it was "buffering forever" — the app was
+    # just stuck waiting on one hung HTTP call instead of failing fast and
+    # moving on to the next fallback model.
+    client = genai.Client(
+        api_key=ASSISTANT_API_KEY,
+        http_options=genai_types.HttpOptions(timeout=20_000),
+    )
     last_exc = None
     for candidate in ASSISTANT_MODEL_CANDIDATES:
         try:
-            response = client.models.generate_content(model=candidate, contents=prompt)
+            response = _call_with_hard_timeout(
+                lambda c=candidate: client.models.generate_content(model=c, contents=prompt)
+            )
             raw_text = (response.text or "").strip()
             cleaned = re.sub(r"^```(?:json)?|```$", "", raw_text, flags=re.MULTILINE).strip()
             data = json.loads(cleaned)
@@ -2562,7 +2598,14 @@ elif page == "AI Career Assistant":
                     reply = "Sorry, I couldn't reach the assistant right now. Please try again in a moment."
 
                 if reply is None:
-                    client = genai.Client(api_key=ASSISTANT_API_KEY)  # <--- FIXED: use resolved key
+                    # Same fix as the salary-estimate path: pin a per-request
+                    # timeout so a slow/unreachable candidate model fails
+                    # fast and the loop below moves on to the next one,
+                    # instead of the chat sitting on "Thinking…" forever.
+                    client = genai.Client(
+                        api_key=ASSISTANT_API_KEY,
+                        http_options=genai_types.HttpOptions(timeout=20_000),
+                    )
                     history = [
                         genai_types.Content(
                             role="user" if m["role"] == "user" else "model",
@@ -2586,7 +2629,7 @@ elif page == "AI Career Assistant":
                                 config=genai_types.GenerateContentConfig(system_instruction=system_ctx),
                                 history=history,
                             )
-                            response = chat.send_message(user_msg)
+                            response = _call_with_hard_timeout(lambda c=chat: c.send_message(user_msg))
                             reply = response.text
                             st.session_state["_working_gemini_model"] = candidate
                             break
