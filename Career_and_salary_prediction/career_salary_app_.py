@@ -40,18 +40,11 @@ def _resolve_assistant_api_key():
 
 ASSISTANT_API_KEY = _resolve_assistant_api_key()
 
-# Order matters: try the most stable, broadly available model first.
-# gemini-2.5-flash is not yet generally available — remove it to avoid
-# unnecessary failures.
-ASSISTANT_MODEL_CANDIDATES = [
-    "gemini-2.0-flash",
-    "gemini-flash-latest",
-    "gemini-1.5-flash",
-]
+# Stable, well‑tested models – use the same library that worked before.
+# Keep only the most reliable model to avoid 404 errors.
+ASSISTANT_MODEL_CANDIDATES = ["gemini-1.5-flash", "gemini-1.5-pro"]
 
-# Per-call wall-clock budget for a single Gemini request attempt, in seconds.
-# The SDK's http_options.timeout handles network timeouts; this value is
-# used as a safety net (but we rely on the SDK's own timeout to avoid threads).
+# Per‑request timeout in seconds for Gemini calls.
 ASSISTANT_CALL_TIMEOUT_S = 20
 
 
@@ -1163,17 +1156,16 @@ def format_money(amount, currency):
     return f"{symbol}{amount:,.2f}"
 
 # ---------------------------------------------------------------------------
-# Independent AI opinion (using google-genai SDK with timeout)
+# Independent AI opinion (using the stable google-generativeai library)
 # ---------------------------------------------------------------------------
 @st.cache_data(ttl=30 * 60, show_spinner=False)
 def _fetch_independent_ai_opinion(age, education, years, job_role, location, skills_tuple, interests_tuple, currency):
     if not ASSISTANT_API_KEY:
         return None, "No API key is configured for the independent AI."
     try:
-        from google import genai
-        from google.genai import types as genai_types
+        import google.generativeai as genai
     except ImportError as exc:
-        return None, f"The `google-genai` package isn't installed: {exc}"
+        return None, f"The `google-generativeai` package isn't installed: {exc}"
 
     skills_list = list(skills_tuple)
     interests_list = list(interests_tuple)
@@ -1208,14 +1200,16 @@ commentary before or after) with exactly these keys:
   rating how well that career fits THIS candidate's profile (skills,
   interests, education, experience), and a one-sentence "why" string
 """
-    client = genai.Client(
-        api_key=ASSISTANT_API_KEY,
-        http_options=genai_types.HttpOptions(timeout=ASSISTANT_CALL_TIMEOUT_S * 1000),
-    )
+    genai.configure(api_key=ASSISTANT_API_KEY)
     last_exc = None
     for candidate in ASSISTANT_MODEL_CANDIDATES:
         try:
-            response = client.models.generate_content(model=candidate, contents=prompt)
+            model = genai.GenerativeModel(candidate)
+            # Set a per‑request timeout to avoid hanging.
+            response = model.generate_content(
+                prompt,
+                request_options={"timeout": ASSISTANT_CALL_TIMEOUT_S}
+            )
             raw_text = (response.text or "").strip()
             cleaned = re.sub(r"^```(?:json)?|```$", "", raw_text, flags=re.MULTILINE).strip()
             data = json.loads(cleaned)
@@ -1225,7 +1219,7 @@ commentary before or after) with exactly these keys:
         except Exception as exc:
             last_exc = exc
             continue
-    return None, f"All model attempts failed. Last error: {last_exc}"
+    return None, f"All models failed. Last error: {last_exc}"
 
 
 def _extract_ai_numeric_range(data):
@@ -2345,23 +2339,16 @@ elif page == "AI Career Assistant":
                 error_detail = None
 
                 try:
-                    from google import genai
-                    from google.genai import types as genai_types
+                    import google.generativeai as genai
                 except ImportError as exc:
-                    error_detail = f"google-genai not installed: {exc}"
+                    error_detail = f"google-generativeai not installed: {exc}"
                     reply = f"Sorry, I couldn't reach the assistant right now. Error: {error_detail}"
 
                 if reply is None:
                     try:
-                        client = genai.Client(
-                            api_key=ASSISTANT_API_KEY,
-                            http_options=genai_types.HttpOptions(timeout=ASSISTANT_CALL_TIMEOUT_S * 1000),
-                        )
+                        genai.configure(api_key=ASSISTANT_API_KEY)
                         history = [
-                            genai_types.Content(
-                                role="user" if m["role"] == "user" else "model",
-                                parts=[genai_types.Part.from_text(text=m["content"])],
-                            )
+                            {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
                             for m in st.session_state["chat_messages"][:-1]
                         ]
                         system_ctx = build_system_context()
@@ -2373,12 +2360,15 @@ elif page == "AI Career Assistant":
                             model_order = [model_order] + [m for m in ASSISTANT_MODEL_CANDIDATES if m != model_order]
                         for candidate in model_order:
                             try:
-                                chat = client.chats.create(
-                                    model=candidate,
-                                    config=genai_types.GenerateContentConfig(system_instruction=system_ctx),
-                                    history=history,
+                                model = genai.GenerativeModel(
+                                    model_name=candidate,
+                                    system_instruction=system_ctx,
                                 )
-                                response = chat.send_message(user_msg)
+                                chat = model.start_chat(history=history)
+                                response = chat.send_message(
+                                    user_msg,
+                                    request_options={"timeout": ASSISTANT_CALL_TIMEOUT_S}
+                                )
                                 reply = response.text
                                 st.session_state["_working_gemini_model"] = candidate
                                 break
