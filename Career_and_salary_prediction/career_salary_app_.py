@@ -3,6 +3,8 @@ import re
 import sys
 import json
 import html
+import random
+import datetime
 import requests
 import numpy as np
 import pandas as pd
@@ -1949,6 +1951,65 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
 """
 st.markdown(CSS, unsafe_allow_html=True)
 
+# How often the sidebar "Live Benchmark" box rerolls itself, in seconds.
+LIVE_BENCHMARK_REFRESH_SECONDS = 5
+
+
+def _render_live_benchmark_box():
+    """Draws one random profile and renders the sidebar benchmark box.
+
+    Wrapped below in st.fragment(run_every=...), so THIS FUNCTION ALONE
+    reruns on its own timer, independent of anything else happening on
+    the page — typing in the salary form, switching pages, etc. no longer
+    has to happen for the benchmark to move, and typing in the form is no
+    longer interrupted by the benchmark's rerun either, since only this
+    fragment (not the whole app) reruns each tick."""
+    _baseline_years = random.choice([0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20])
+    _baseline_edu = random.choice(EDUCATION_LEVELS)
+    _baseline_loc = random.choice(LOCATIONS)
+    _role_salaries = {
+        role: predict_salary(Models, _baseline_years, _baseline_edu, role, _baseline_loc)
+        for role in JOB_ROLES
+    }
+    _top_role = max(_role_salaries, key=_role_salaries.get)
+    _low_role = min(_role_salaries, key=_role_salaries.get)
+    _updated_at = datetime.datetime.now().strftime("%H:%M:%S")
+    st.markdown(
+        f"""
+        <div class="side-box">
+        <h4>📈 Live Benchmark
+        <span style="opacity:.7;font-weight:700;font-size:0.65rem;color:#7fe8c4 !important;">● LIVE</span></h4>
+        <p style="margin:0 0 6px 0;opacity:.85;">{_baseline_years} yrs exp ·
+        {_baseline_edu} · {_baseline_loc}</p>
+        <ul>
+            <li>Highest: <b>{_top_role}</b>
+            ({format_money(_role_salaries[_top_role], "INR")})</li>
+            <li>Lowest: <b>{_low_role}</b>
+            ({format_money(_role_salaries[_low_role], "INR")})</li>
+        </ul>
+        <p style="margin:6px 0 0 0;opacity:.6;font-size:0.72rem;">Updated {_updated_at} · new profile every {LIVE_BENCHMARK_REFRESH_SECONDS}s</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# st.fragment(run_every=...) needs Streamlit >= 1.35. Where it's available,
+# this box ticks over on its own timer even if the user never touches
+# anything else. On older Streamlit versions it falls back to the
+# original behavior — a fresh random profile on every full-app rerun
+# (widget interaction, page reload) — instead of raising an error.
+if hasattr(st, "fragment"):
+    try:
+        _render_live_benchmark_box = st.fragment(run_every=LIVE_BENCHMARK_REFRESH_SECONDS)(
+            _render_live_benchmark_box
+        )
+    except TypeError:
+        # st.fragment exists but this older version doesn't accept
+        # run_every — still isolate the rerun to this box, just without
+        # the standalone timer.
+        _render_live_benchmark_box = st.fragment(_render_live_benchmark_box)
+
 with st.sidebar:
     st.markdown("### 🤖 Career & Salary AI")
     NAV_ICONS = {"Dashboard": "📊", "AI Career Assistant": "💬", "About System": "ℹ️"}
@@ -1976,29 +2037,7 @@ with st.sidebar:
 
     if MODELS_OK:
         try:
-            _baseline_years, _baseline_edu, _baseline_loc = 3, EDUCATION_LEVELS[0], "India"
-            _role_salaries = {
-                role: predict_salary(Models, _baseline_years, _baseline_edu, role, _baseline_loc)
-                for role in JOB_ROLES
-            }
-            _top_role = max(_role_salaries, key=_role_salaries.get)
-            _low_role = min(_role_salaries, key=_role_salaries.get)
-            st.markdown(
-                f"""
-                <div class="side-box">
-                <h4>📈 Live Benchmark</h4>
-                <p style="margin:0 0 6px 0;opacity:.85;">{_baseline_years} yrs exp ·
-                {_baseline_edu} · {_baseline_loc}</p>
-                <ul>
-                    <li>Highest: <b>{_top_role}</b>
-                    ({format_money(_role_salaries[_top_role], "INR")})</li>
-                    <li>Lowest: <b>{_low_role}</b>
-                    ({format_money(_role_salaries[_low_role], "INR")})</li>
-                </ul>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            _render_live_benchmark_box()
         except Exception:  # noqa: BLE001 — sidebar insight is best-effort
             pass
 
@@ -2007,7 +2046,7 @@ with st.sidebar:
         <div class="side-box disclaimer">
         <h4>Disclaimer</h4>
         <p style="margin:0;">Estimates come from models trained on sample
-        data — use them as guidance, not exact figures.</p>
+        data — use the result as guidance, not exact figures.</p>
         </div>
         """,
         unsafe_allow_html=True,
