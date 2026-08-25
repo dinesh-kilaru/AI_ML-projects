@@ -2042,8 +2042,7 @@ with st.sidebar:
         """
         <div class="side-box disclaimer">
         <h4>Disclaimer</h4>
-        <p style="margin:0;">Estimates come from models trained on sample
-        data — use the result as guidance, not exact figures.</p>
+        <p style="margin:0;">use the PREDICTIONS as guidance, not exact figures.</p>
         </div>
         """,
         unsafe_allow_html=True,
