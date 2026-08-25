@@ -7,3 +7,4 @@ scipy
 requests
 plotly
 google-genai
+google-generativeai
