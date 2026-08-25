@@ -1508,25 +1508,27 @@ CSS = """
 :root {
     --font-display: 'Sora', 'Inter', sans-serif;
     --font-body: 'Inter', sans-serif;
-    --navy: #eef2fb;
-    --navy-light: #e2e9fb;
-    --bg: #f6f8fd;
+    --navy: #e8edfc;
+    --navy-light: #dbe4fb;
+    --bg: linear-gradient(160deg, #eef1fd 0%, #fdf1f8 45%, #eafcf7 100%);
     --card: #ffffff;
-    --card-border: rgba(15,23,42,0.08);
-    --text-dark: #1b2540;
-    --text-muted: #5b6b8c;
-    --accent-blue: #3b78ff;
-    --accent-green: #16a34a;
-    --accent-purple: #7c5cfc;
-    --accent-orange: #ea8b0c;
-    --accent-teal: #0d9aa6;
+    --card-border: rgba(15,23,42,0.10);
+    --text-dark: #0f172a;
+    --text-muted: #3d4a6b;
+    --accent-blue: #2554e8;
+    --accent-green: #059669;
+    --accent-purple: #7c3aed;
+    --accent-orange: #ea580c;
+    --accent-teal: #0891b2;
+    --accent-pink: #db2777;
     --accent-red: #dc2626;
-    --header-start: #3b6fe0;
-    --header-end: #14a4b0;
+    --header-start: #6d28d9;
+    --header-mid: #2554e8;
+    --header-end: #0891b2;
 }
 
 header[data-testid="stHeader"] { background: transparent; }
-.stApp { background: var(--bg) !important; }
+.stApp { background: var(--bg) !important; background-attachment: fixed !important; }
 
 .block-container [data-testid="stMarkdownContainer"],
 .block-container [data-testid="stMarkdownContainer"] p,
@@ -1552,16 +1554,16 @@ header[data-testid="stHeader"] { background: transparent; }
 .block-container [data-baseweb="select"] > div,
 .block-container [data-baseweb="base-input"] {
     background: var(--navy) !important;
-    color: #1b2540 !important;
+    color: #0f172a !important;
     border-radius: 10px !important;
     border: 1px solid rgba(15,23,42,0.10) !important;
 }
 .block-container [data-baseweb="select"] * ,
 .block-container input,
 .block-container textarea {
-    color: #1b2540 !important;
+    color: #0f172a !important;
 }
-.block-container [data-testid="stNumberInput"] button svg { fill: #1b2540 !important; }
+.block-container [data-testid="stNumberInput"] button svg { fill: #0f172a !important; }
 .block-container [data-testid="stNumberInput"] button {
     background: var(--navy-light) !important;
     border-color: rgba(15,23,42,0.10) !important;
@@ -1620,7 +1622,7 @@ div[data-baseweb="popover"] li:hover, div[data-baseweb="menu"] li:hover {
 }
 .block-container [data-testid="stChatInput"] textarea {
     background: var(--navy) !important;
-    color: #1b2540 !important;
+    color: #0f172a !important;
     border-radius: 10px !important;
 }
 .block-container [data-testid="stChatInput"] textarea::placeholder { color: #7c88a8 !important; }
@@ -1629,9 +1631,9 @@ div[data-baseweb="popover"] li:hover, div[data-baseweb="menu"] li:hover {
 
 section[data-testid="stSidebar"] {
     background: linear-gradient(180deg, var(--navy) 0%, var(--navy-light) 100%);
-    border-right: 1px solid rgba(15,23,42,0.06);
+    border-right: 1px solid rgba(15,23,42,0.08);
 }
-section[data-testid="stSidebar"] * { color: #1b2540 !important; }
+section[data-testid="stSidebar"] * { color: #0f172a !important; }
 section[data-testid="stSidebar"] .stRadio > label { display: none; }
 section[data-testid="stSidebar"] div[role="radiogroup"] {
     display: flex;
@@ -1639,38 +1641,40 @@ section[data-testid="stSidebar"] div[role="radiogroup"] {
     gap: 6px;
 }
 section[data-testid="stSidebar"] div[role="radiogroup"] label {
-    background: rgba(255,255,255,0.55);
-    border: 1px solid rgba(15,23,42,0.07);
+    background: rgba(255,255,255,0.65);
+    border: 1px solid rgba(15,23,42,0.09);
     border-radius: 10px;
     padding: 10px 14px;
     margin-bottom: 0;
+    font-weight: 600;
     transition: background 0.15s ease, border-color 0.15s ease;
 }
 section[data-testid="stSidebar"] div[role="radiogroup"] label:hover {
-    background: rgba(255,255,255,0.9);
+    background: rgba(255,255,255,0.95);
 }
 section[data-testid="stSidebar"] div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child,
 section[data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {
     display: none;
 }
 section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {
-    background: linear-gradient(90deg, rgba(13,154,166,0.20), rgba(13,154,166,0.06));
-    border-color: var(--accent-teal);
-    box-shadow: inset 2px 0 0 var(--accent-teal);
+    background: linear-gradient(90deg, rgba(124,58,237,0.22), rgba(8,145,178,0.14));
+    border-color: var(--accent-purple);
+    box-shadow: inset 3px 0 0 var(--accent-purple);
 }
 section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) p {
-    color: #0d5359 !important;
-    font-weight: 700;
+    color: #4c1d95 !important;
+    font-weight: 800;
 }
 
 .app-header {
-    background: linear-gradient(90deg, var(--header-start) 0%, var(--header-end) 100%);
+    background: linear-gradient(100deg, var(--header-start) 0%, var(--header-mid) 55%, var(--header-end) 100%);
     padding: 18px 26px;
     border-radius: 14px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 18px;
+    box-shadow: 0 8px 24px rgba(37,84,232,0.22);
 }
 .block-container [data-testid="stMarkdownContainer"] .app-header h1,
 .app-header h1 { margin: 2px 0 0 0; font-size: 1.7rem; font-weight: 800; letter-spacing: -0.01em; color: #ffffff !important; }
@@ -1686,74 +1690,88 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
 }
 
 .card {
+    position: relative;
     background: var(--card);
     border: 1px solid var(--card-border);
     border-radius: 14px;
-    padding: 18px 20px;
-    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+    padding: 20px 20px 18px 20px;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
     margin-bottom: 16px;
+    overflow: hidden;
+}
+.card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--accent-purple), var(--accent-blue), var(--accent-teal));
 }
 
 .chip {
     border-radius: 12px;
     padding: 10px 14px;
     text-align: left;
-    font-weight: 600;
+    font-weight: 700;
+    border: 1px solid transparent;
 }
-.chip .label { display:block; font-size: 0.72rem; font-weight: 500; opacity: 0.85; }
-.chip-blue,   .chip-blue   * { background: rgba(59,120,255,0.12);  color: #1d4ed8 !important; }
-.chip-green,  .chip-green  * { background: rgba(22,163,74,0.12);   color: #15803d !important; }
-.chip-orange, .chip-orange * { background: rgba(234,139,12,0.14);  color: #b45309 !important; }
-.chip-teal,   .chip-teal   * { background: rgba(13,154,166,0.14);  color: #0f766e !important; }
+.chip .label { display:block; font-size: 0.72rem; font-weight: 600; opacity: 0.9; }
+.chip-blue,   .chip-blue   * { background: rgba(37,84,232,0.14);   color: #1d3fc4 !important; border-color: rgba(37,84,232,0.22); }
+.chip-green,  .chip-green  * { background: rgba(5,150,105,0.14);   color: #047551 !important; border-color: rgba(5,150,105,0.22); }
+.chip-orange, .chip-orange * { background: rgba(234,88,12,0.16);   color: #b8420a !important; border-color: rgba(234,88,12,0.24); }
+.chip-teal,   .chip-teal   * { background: rgba(8,145,178,0.16);   color: #0a6d85 !important; border-color: rgba(8,145,178,0.24); }
+.chip-purple, .chip-purple * { background: rgba(124,58,237,0.15);  color: #5f21c9 !important; border-color: rgba(124,58,237,0.24); }
+.chip-pink,   .chip-pink   * { background: rgba(219,39,119,0.15);  color: #ad155f !important; border-color: rgba(219,39,119,0.24); }
 
 .pill, .pill * {
     display: inline-block;
-    background: rgba(15,23,42,0.06);
-    color: #38466b !important;
+    background: rgba(37,84,232,0.08);
+    color: #1e2a4a !important;
+    border: 1px solid rgba(37,84,232,0.14);
     border-radius: 999px;
     padding: 4px 12px;
     margin: 3px 4px 3px 0;
     font-size: 0.82rem;
+    font-weight: 600;
 }
-.pill.match, .pill.match * { background: rgba(22,163,74,0.16); color: #15803d !important; font-weight: 600; }
+.pill.match, .pill.match * { background: rgba(5,150,105,0.18); color: #04704e !important; border-color: rgba(5,150,105,0.3); font-weight: 700; }
 
 .side-box {
-    background: rgba(15,23,42,0.035);
-    border: 1px solid rgba(15,23,42,0.07);
+    background: rgba(37,84,232,0.045);
+    border: 1px solid rgba(15,23,42,0.09);
     border-radius: 10px;
     padding: 10px 12px;
     margin-bottom: 10px;
     font-size: 0.85rem;
 }
-.side-box h4 { margin: 0 0 6px 0; font-size: 0.82rem; letter-spacing: .03em; text-transform: uppercase; color: #2451c9 !important; }
+.side-box h4 { margin: 0 0 6px 0; font-size: 0.82rem; letter-spacing: .03em; text-transform: uppercase; color: #1d3fc4 !important; }
 .side-box ul { margin: 0; padding-left: 18px; }
-.disclaimer { border-left: 3px solid #dc2626; }
+.disclaimer { border-left: 4px solid #dc2626; background: rgba(220,38,38,0.05); }
 .disclaimer h4 { color: #b91c1c !important; }
 
 .block-container .stButton button {
-    background: var(--accent-blue) !important;
+    background: linear-gradient(90deg, var(--accent-purple), var(--accent-blue)) !important;
     color: #ffffff !important;
     border: none !important;
-    font-weight: 600;
+    font-weight: 700;
     border-radius: 10px;
 }
-.block-container .stButton button:hover { background: #2559c9 !important; }
+.block-container .stButton button:hover { background: linear-gradient(90deg, #6425d1, #1d3fc4) !important; }
 
 .footer-note { text-align:center; color: var(--text-muted) !important; font-size: 0.78rem; margin-top: 30px; }
 
 .ai-card {
-    background: linear-gradient(135deg, rgba(124,92,252,0.08), rgba(13,154,166,0.06));
-    border: 1px solid rgba(124,92,252,0.22);
+    background: linear-gradient(135deg, rgba(124,58,237,0.10), rgba(8,145,178,0.08));
+    border: 1px solid rgba(124,58,237,0.28);
     border-radius: 14px;
     padding: 18px 20px;
-    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+    box-shadow: 0 2px 12px rgba(124,58,237,0.10);
     margin-bottom: 16px;
 }
 .ai-card h5, .ai-card p, .ai-card li { color: var(--text-dark) !important; }
 .ai-badge {
     display: inline-block;
-    background: rgba(124,92,252,0.16);
-    color: #6d28d9 !important;
+    background: linear-gradient(90deg, var(--accent-purple), var(--accent-teal));
+    color: #ffffff !important;
     border-radius: 999px;
     padding: 3px 11px;
     font-size: 0.72rem;
@@ -1791,8 +1809,9 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
 }
 .card:hover {
-    border-color: rgba(59,120,255,0.28);
-    box-shadow: 0 6px 20px rgba(15,23,42,0.10);
+    transform: translateY(-2px);
+    border-color: rgba(37,84,232,0.30);
+    box-shadow: 0 10px 24px rgba(37,84,232,0.14);
 }
 
 .section-heading {
@@ -1801,7 +1820,7 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     gap: 8px;
     margin: 0 0 10px 0;
     font-family: var(--font-display);
-    font-weight: 700;
+    font-weight: 800;
     font-size: 1.02rem;
     color: var(--text-dark) !important;
 }
@@ -1812,7 +1831,7 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     width: 28px;
     height: 28px;
     border-radius: 8px;
-    background: rgba(59,120,255,0.12);
+    background: linear-gradient(135deg, rgba(124,58,237,0.20), rgba(8,145,178,0.20));
     font-size: 0.95rem;
 }
 
@@ -1843,10 +1862,10 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
 .block-container [data-testid="stTabs"] [data-baseweb="tab"] p { color: inherit !important; }
 .block-container [data-testid="stTabs"] [aria-selected="true"] {
     color: var(--text-dark) !important;
-    background: rgba(59,120,255,0.10);
+    background: linear-gradient(90deg, rgba(124,58,237,0.14), rgba(37,84,232,0.12));
 }
 .block-container [data-testid="stTabs"] [data-baseweb="tab-highlight"] {
-    background-color: var(--accent-blue) !important;
+    background-color: var(--accent-purple) !important;
 }
 
 /* Certification module */
@@ -1856,15 +1875,15 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    background: rgba(15,23,42,0.025);
-    border: 1px solid rgba(15,23,42,0.08);
+    background: rgba(37,84,232,0.03);
+    border: 1px solid rgba(15,23,42,0.10);
     border-radius: 12px;
     padding: 12px 16px;
     transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 .cert-item:hover {
-    background: rgba(124,92,252,0.07);
-    border-color: rgba(124,92,252,0.3);
+    background: rgba(124,58,237,0.08);
+    border-color: rgba(124,58,237,0.35);
     transform: translateX(2px);
 }
 .cert-item a, .cert-item a * { text-decoration: none !important; }
@@ -1874,16 +1893,16 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     width: 34px; height: 34px;
     border-radius: 9px;
     display: flex; align-items: center; justify-content: center;
-    background: linear-gradient(135deg, rgba(234,139,12,0.18), rgba(124,92,252,0.18));
+    background: linear-gradient(135deg, rgba(234,88,12,0.22), rgba(124,58,237,0.22));
     font-size: 1.05rem;
 }
-.cert-title, .cert-title * { color: var(--text-dark) !important; font-weight: 600; font-size: 0.92rem; }
-.cert-provider, .cert-provider * { color: var(--text-muted) !important; font-size: 0.78rem; }
-.cert-arrow, .cert-arrow * { color: #2563eb !important; font-weight: 700; font-size: 1rem; }
+.cert-title, .cert-title * { color: var(--text-dark) !important; font-weight: 700; font-size: 0.92rem; }
+.cert-provider, .cert-provider * { color: var(--text-muted) !important; font-size: 0.78rem; font-weight: 500; }
+.cert-arrow, .cert-arrow * { color: var(--accent-blue) !important; font-weight: 700; font-size: 1rem; }
 .cert-for-tag {
     display: inline-block;
-    background: rgba(234,139,12,0.14);
-    color: #b45309 !important;
+    background: rgba(234,88,12,0.16);
+    color: #9a3a0a !important;
     border-radius: 999px;
     padding: 2px 10px;
     font-size: 0.72rem;
@@ -1896,8 +1915,8 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     display: flex;
     align-items: flex-start;
     gap: 12px;
-    background: rgba(124,92,252,0.05);
-    border: 1px solid rgba(124,92,252,0.18);
+    background: rgba(124,58,237,0.06);
+    border: 1px solid rgba(124,58,237,0.22);
     border-radius: 12px;
     padding: 12px 14px;
     margin-bottom: 8px;
@@ -1907,7 +1926,7 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     width: 26px; height: 26px;
     border-radius: 999px;
     display: flex; align-items: center; justify-content: center;
-    background: var(--accent-purple);
+    background: linear-gradient(135deg, var(--accent-purple), var(--accent-pink));
     color: #ffffff !important;
     font-weight: 700;
     font-size: 0.8rem;
@@ -1917,12 +1936,13 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
 .ai-rank-why { color: var(--text-muted) !important; font-size: 0.82rem; margin-top: 2px; }
 .ai-rank-note {
     display: inline-block;
-    background: rgba(13,154,166,0.10);
-    border: 1px solid rgba(13,154,166,0.25);
+    background: rgba(8,145,178,0.10);
+    border: 1px solid rgba(8,145,178,0.28);
     border-radius: 8px;
     padding: 8px 12px;
     font-size: 0.8rem;
-    color: var(--text-muted) !important;
+    color: var(--text-dark) !important;
+    font-weight: 500;
     margin-bottom: 10px;
 }
 </style>
@@ -2138,8 +2158,8 @@ if page == "Dashboard":
             c1, c2, c3, c4 = st.columns(4)
             for col, cls, label, value in [
                 (c1, "chip-blue", "Experience", f"{years:g} yrs"),
-                (c2, "chip-green", "Job Role", job_role),
-                (c3, "chip-orange", "Top Career Match", top_career),
+                (c2, "chip-purple", "Job Role", job_role),
+                (c3, "chip-pink", "Top Career Match", top_career),
                 (c4, "chip-teal", "Location", location),
             ]:
                 col.markdown(
@@ -2154,24 +2174,24 @@ if page == "Dashboard":
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.markdown(f"##### Predicted Salary ({display_currency})")
                 st.markdown(f"**Estimated range:** {format_money(min_disp, display_currency)} – {format_money(max_disp, display_currency)}")
-                st.markdown(f"<h2 style='color:#2563eb !important;margin:4px 0;'>{format_money(salary_disp, display_currency)}</h2>", unsafe_allow_html=True)
+                st.markdown(f"<h2 style='background:linear-gradient(90deg,#2554e8,#7c3aed);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;margin:4px 0;font-weight:800;'>{format_money(salary_disp, display_currency)}</h2>", unsafe_allow_html=True)
 
                 position = "Above Average" if salary_inr >= avg_reference_inr else "Below Average"
-                pos_color = "#16a34a" if position == "Above Average" else "#dc2626"
+                pos_color = "#059669" if position == "Above Average" else "#dc2626"
 
                 gauge_max = max(max_disp * 1.1, salary_disp * 1.1, 1)
                 fig = go.Figure(go.Indicator(
                     mode="gauge+number",
                     value=salary_disp,
-                    number={"prefix": CURRENCY_SYMBOLS.get(display_currency, ""), "valueformat": ",.0f", "font": {"color": "#1b2540"}},
+                    number={"prefix": CURRENCY_SYMBOLS.get(display_currency, ""), "valueformat": ",.0f", "font": {"color": "#0f172a"}},
                     gauge={
-                        "axis": {"range": [0, gauge_max], "tickcolor": "#5b6b8c"},
-                        "bar": {"color": "#3b78ff"},
+                        "axis": {"range": [0, gauge_max], "tickcolor": "#3d4a6b"},
+                        "bar": {"color": "#2554e8"},
                         "bgcolor": "rgba(0,0,0,0)",
                         "steps": [
-                            {"range": [0, gauge_max * 0.33], "color": "#fde2e1"},
-                            {"range": [gauge_max * 0.33, gauge_max * 0.66], "color": "#fdecc8"},
-                            {"range": [gauge_max * 0.66, gauge_max], "color": "#d9f2d5"},
+                            {"range": [0, gauge_max * 0.33], "color": "#fbd0d6"},
+                            {"range": [gauge_max * 0.33, gauge_max * 0.66], "color": "#fde0b8"},
+                            {"range": [gauge_max * 0.66, gauge_max], "color": "#bce8d2"},
                         ],
                         "threshold": {"line": {"color": pos_color, "width": 4}, "value": salary_disp},
                     },
@@ -2179,7 +2199,7 @@ if page == "Dashboard":
                 fig.update_layout(
                     height=220, margin=dict(l=20, r=20, t=10, b=10),
                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="#1b2540"),
+                    font=dict(color="#0f172a"),
                 )
                 st.plotly_chart(fig, use_container_width=True)
                 st.markdown(f"Market position: **<span style='color:{pos_color} !important'>{position}</span>** vs. peers with a similar profile", unsafe_allow_html=True)
@@ -2201,15 +2221,15 @@ if page == "Dashboard":
                 bar_fig = go.Figure(go.Bar(
                     x=["Min", "Avg", "Max"],
                     y=[min_disp, salary_disp, max_disp],
-                    marker_color=["#dc2626", "#3b78ff", "#16a34a"],
+                    marker_color=["#dc2626", "#2554e8", "#059669"],
                     text=[format_money(v, display_currency) for v in [min_disp, salary_disp, max_disp]],
                     textposition="outside",
-                    textfont=dict(color="#1b2540"),
+                    textfont=dict(color="#0f172a"),
                 ))
                 bar_fig.update_layout(
                     height=260, margin=dict(l=20, r=20, t=10, b=10), showlegend=False,
                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="#1b2540"),
+                    font=dict(color="#0f172a"),
                     xaxis=dict(gridcolor="rgba(15,23,42,0.08)"),
                     yaxis=dict(gridcolor="rgba(15,23,42,0.08)"),
                 )
@@ -2260,14 +2280,14 @@ if page == "Dashboard":
             g_salaries_disp = [convert_from_inr(s, display_currency, rates) for s in g_salaries_inr]
             growth_fig = go.Figure(go.Scatter(
                 x=g_years, y=g_salaries_disp, mode="lines+markers",
-                line=dict(color="#16a34a", width=3), marker=dict(size=5, color="#16a34a"),
+                line=dict(color="#059669", width=3), marker=dict(size=6, color="#7c3aed"),
             ))
             growth_fig.update_layout(
                 height=280, margin=dict(l=20, r=20, t=10, b=10),
                 xaxis_title="Years of Experience",
                 yaxis_title=f"Salary ({display_currency})",
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                font=dict(color="#1b2540"),
+                font=dict(color="#0f172a"),
                 xaxis=dict(gridcolor="rgba(15,23,42,0.08)"),
                 yaxis=dict(gridcolor="rgba(15,23,42,0.08)"),
             )
