@@ -40,9 +40,14 @@ def _resolve_assistant_api_key():
 
 ASSISTANT_API_KEY = _resolve_assistant_api_key()
 
-# Only use the stable, well-supported Gemini model.
-# gemini-1.5-pro may not be available in all regions/API versions.
-ASSISTANT_MODEL_CANDIDATES = ["gemini-1.5-flash"]
+# Order matters: try the most stable, widely available model first.
+# gemini-pro is the older model that works with v1beta; the others are
+# newer and may not be available on that endpoint.
+ASSISTANT_MODEL_CANDIDATES = [
+    "gemini-pro",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+]
 
 # Per‑request timeout in seconds for Gemini calls.
 ASSISTANT_CALL_TIMEOUT_S = 20
