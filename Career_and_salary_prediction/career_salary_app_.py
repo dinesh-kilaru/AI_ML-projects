@@ -13,7 +13,6 @@ import streamlit as st
 import plotly.graph_objects as go
 from scipy.sparse import hstack, csr_matrix
 from sklearn.feature_extraction.text import TfidfVectorizer
-from google import genai
 from urllib.parse import quote
 import io
 
