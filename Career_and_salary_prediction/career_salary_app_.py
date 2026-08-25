@@ -1347,7 +1347,9 @@ commentary before or after) with exactly these keys:
   "₹6,00,000 - ₹9,50,000" or "$70,000 - $95,000")
 - "reasoning": 1-2 concise sentences on how you arrived at that range
 - "recommended_careers": a JSON array of up to 3 objects, ordered best-fit
-  first, each with a "career" string and a one-sentence "why" string
+  first, each with a "career" string, a "match_score" integer from 0-100
+  rating how well that career fits THIS candidate's profile (skills,
+  interests, education, experience), and a one-sentence "why" string
 """
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -1393,6 +1395,37 @@ def _ai_top_career(data):
             if career:
                 return career
     return None
+
+
+def _ai_career_matches(data, top_n=5):
+    """Turn the independent AI's recommended_careers list into the same
+    (career, match_score_0_to_1, extra) shape blended_career_matches()
+    returns, so the 'Career Matches' panel can be driven by the AI's own
+    ranking instead of (or alongside) the trained classifier + coverage
+    blend. Ranked by the AI's own match_score when present, otherwise by
+    the order the AI listed them in. Returns [] if nothing usable came
+    back, so callers can fall back to the ML ranking."""
+    if not isinstance(data, dict):
+        return []
+    items = data.get("recommended_careers", []) or []
+    parsed = []
+    for position, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        career = str(item.get("career", "")).strip()
+        if not career:
+            continue
+        why = str(item.get("why", "")).strip()
+        try:
+            score = float(item.get("match_score"))
+            score = max(0.0, min(score, 100.0)) / 100.0
+        except (TypeError, ValueError):
+            # No usable score from the AI — fall back to a rank-based
+            # score so earlier list positions still score higher.
+            score = max(0.95 - position * 0.12, 0.4)
+        parsed.append((career, score, why))
+    parsed.sort(key=lambda x: -x[1])
+    return parsed[:top_n]
 
 
 def render_ai_opinion_card(data, error, badge_text="AI estimate", note=None):
@@ -1475,19 +1508,21 @@ CSS = """
 :root {
     --font-display: 'Sora', 'Inter', sans-serif;
     --font-body: 'Inter', sans-serif;
-    --navy: #0c1b3a;
-    --navy-light: #142a56;
-    --bg: #0a1226;
-    --card: #131d38;
-    --card-border: rgba(255,255,255,0.08);
-    --text-dark: #eef1fb;
-    --text-muted: #93a0c4;
-    --accent-blue: #4d8dff;
+    --navy: #eef2fb;
+    --navy-light: #e2e9fb;
+    --bg: #f6f8fd;
+    --card: #ffffff;
+    --card-border: rgba(15,23,42,0.08);
+    --text-dark: #1b2540;
+    --text-muted: #5b6b8c;
+    --accent-blue: #3b78ff;
     --accent-green: #16a34a;
     --accent-purple: #7c5cfc;
-    --accent-orange: #f5921b;
-    --accent-teal: #14b8c4;
+    --accent-orange: #ea8b0c;
+    --accent-teal: #0d9aa6;
     --accent-red: #dc2626;
+    --header-start: #3b6fe0;
+    --header-end: #14a4b0;
 }
 
 header[data-testid="stHeader"] { background: transparent; }
@@ -1517,19 +1552,19 @@ header[data-testid="stHeader"] { background: transparent; }
 .block-container [data-baseweb="select"] > div,
 .block-container [data-baseweb="base-input"] {
     background: var(--navy) !important;
-    color: #f4f6fb !important;
+    color: #1b2540 !important;
     border-radius: 10px !important;
-    border: 1px solid rgba(255,255,255,0.08) !important;
+    border: 1px solid rgba(15,23,42,0.10) !important;
 }
 .block-container [data-baseweb="select"] * ,
 .block-container input,
 .block-container textarea {
-    color: #f4f6fb !important;
+    color: #1b2540 !important;
 }
-.block-container [data-testid="stNumberInput"] button svg { fill: #f4f6fb !important; }
+.block-container [data-testid="stNumberInput"] button svg { fill: #1b2540 !important; }
 .block-container [data-testid="stNumberInput"] button {
     background: var(--navy-light) !important;
-    border-color: rgba(255,255,255,0.08) !important;
+    border-color: rgba(15,23,42,0.10) !important;
 }
 .block-container [data-baseweb="tag"] {
     background: var(--accent-blue) !important;
@@ -1543,7 +1578,7 @@ div[data-baseweb="popover"] li *, div[data-baseweb="menu"] li * {
     color: var(--text-dark) !important;
 }
 div[data-baseweb="popover"] li:hover, div[data-baseweb="menu"] li:hover {
-    background: rgba(255,255,255,0.06) !important;
+    background: rgba(15,23,42,0.05) !important;
 }
 
 .block-container [data-testid="stChatMessage"] {
@@ -1562,6 +1597,7 @@ div[data-baseweb="popover"] li:hover, div[data-baseweb="menu"] li:hover {
     border-bottom-left-radius: 4px !important;
     padding: 10px 16px !important;
     max-width: 82%;
+    box-shadow: 0 1px 4px rgba(15,23,42,0.06);
 }
 .block-container [data-testid="stChatMessageContent"] * {
     color: var(--text-dark) !important;
@@ -1570,8 +1606,8 @@ div[data-baseweb="popover"] li:hover, div[data-baseweb="menu"] li:hover {
     flex-direction: row-reverse;
 }
 .block-container [data-testid="stChatMessage"]:has([aria-label="Chat message from user"]) [data-testid="stChatMessageContent"] {
-    background: rgba(77,141,255,0.18) !important;
-    border-color: rgba(77,141,255,0.35) !important;
+    background: rgba(59,120,255,0.10) !important;
+    border-color: rgba(59,120,255,0.25) !important;
     border-radius: 16px !important;
     border-bottom-right-radius: 4px !important;
     border-bottom-left-radius: 16px !important;
@@ -1584,17 +1620,18 @@ div[data-baseweb="popover"] li:hover, div[data-baseweb="menu"] li:hover {
 }
 .block-container [data-testid="stChatInput"] textarea {
     background: var(--navy) !important;
-    color: #f4f6fb !important;
+    color: #1b2540 !important;
     border-radius: 10px !important;
 }
-.block-container [data-testid="stChatInput"] textarea::placeholder { color: #a9b4d4 !important; }
+.block-container [data-testid="stChatInput"] textarea::placeholder { color: #7c88a8 !important; }
 
 .block-container [data-testid="stAlert"] * { color: var(--text-dark) !important; }
 
 section[data-testid="stSidebar"] {
     background: linear-gradient(180deg, var(--navy) 0%, var(--navy-light) 100%);
+    border-right: 1px solid rgba(15,23,42,0.06);
 }
-section[data-testid="stSidebar"] * { color: #e7ecff !important; }
+section[data-testid="stSidebar"] * { color: #1b2540 !important; }
 section[data-testid="stSidebar"] .stRadio > label { display: none; }
 section[data-testid="stSidebar"] div[role="radiogroup"] {
     display: flex;
@@ -1602,32 +1639,32 @@ section[data-testid="stSidebar"] div[role="radiogroup"] {
     gap: 6px;
 }
 section[data-testid="stSidebar"] div[role="radiogroup"] label {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.07);
+    background: rgba(255,255,255,0.55);
+    border: 1px solid rgba(15,23,42,0.07);
     border-radius: 10px;
     padding: 10px 14px;
     margin-bottom: 0;
     transition: background 0.15s ease, border-color 0.15s ease;
 }
 section[data-testid="stSidebar"] div[role="radiogroup"] label:hover {
-    background: rgba(255,255,255,0.14);
+    background: rgba(255,255,255,0.9);
 }
 section[data-testid="stSidebar"] div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child,
 section[data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {
     display: none;
 }
 section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {
-    background: linear-gradient(90deg, rgba(20,184,196,0.28), rgba(20,184,196,0.08));
+    background: linear-gradient(90deg, rgba(13,154,166,0.20), rgba(13,154,166,0.06));
     border-color: var(--accent-teal);
     box-shadow: inset 2px 0 0 var(--accent-teal);
 }
 section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) p {
-    color: #ffffff !important;
+    color: #0d5359 !important;
     font-weight: 700;
 }
 
 .app-header {
-    background: linear-gradient(90deg, var(--navy) 0%, var(--navy-light) 100%);
+    background: linear-gradient(90deg, var(--header-start) 0%, var(--header-end) 100%);
     padding: 18px 26px;
     border-radius: 14px;
     display: flex;
@@ -1638,11 +1675,11 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
 .block-container [data-testid="stMarkdownContainer"] .app-header h1,
 .app-header h1 { margin: 2px 0 0 0; font-size: 1.7rem; font-weight: 800; letter-spacing: -0.01em; color: #ffffff !important; }
 .block-container [data-testid="stMarkdownContainer"] .app-header span.tag,
-.app-header span.tag { color: #9db3ff !important; font-size: 0.9rem; font-style: italic; }
+.app-header span.tag { color: #eaf1ff !important; font-size: 0.9rem; font-style: italic; }
 .block-container [data-testid="stMarkdownContainer"] .app-header span.eyebrow,
 .app-header span.eyebrow {
     display: block;
-    color: var(--accent-teal) !important;
+    color: #c9fff2 !important;
     font-size: 0.68rem;
     font-weight: 700;
     letter-spacing: 0.14em;
@@ -1653,7 +1690,7 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     border: 1px solid var(--card-border);
     border-radius: 14px;
     padding: 18px 20px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
     margin-bottom: 16px;
 }
 
@@ -1664,34 +1701,34 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     font-weight: 600;
 }
 .chip .label { display:block; font-size: 0.72rem; font-weight: 500; opacity: 0.85; }
-.chip-blue,   .chip-blue   * { background: rgba(77,141,255,0.16);  color: #8fb6ff !important; }
-.chip-green,  .chip-green  * { background: rgba(22,163,74,0.16);   color: #6ee0a0 !important; }
-.chip-orange, .chip-orange * { background: rgba(245,146,27,0.18);  color: #fbbf6d !important; }
-.chip-teal,   .chip-teal   * { background: rgba(20,184,196,0.18);  color: #7fe3ea !important; }
+.chip-blue,   .chip-blue   * { background: rgba(59,120,255,0.12);  color: #1d4ed8 !important; }
+.chip-green,  .chip-green  * { background: rgba(22,163,74,0.12);   color: #15803d !important; }
+.chip-orange, .chip-orange * { background: rgba(234,139,12,0.14);  color: #b45309 !important; }
+.chip-teal,   .chip-teal   * { background: rgba(13,154,166,0.14);  color: #0f766e !important; }
 
 .pill, .pill * {
     display: inline-block;
-    background: rgba(255,255,255,0.07);
-    color: #c3cbe6 !important;
+    background: rgba(15,23,42,0.06);
+    color: #38466b !important;
     border-radius: 999px;
     padding: 4px 12px;
     margin: 3px 4px 3px 0;
     font-size: 0.82rem;
 }
-.pill.match, .pill.match * { background: rgba(22,163,74,0.22); color: #6ee0a0 !important; font-weight: 600; }
+.pill.match, .pill.match * { background: rgba(22,163,74,0.16); color: #15803d !important; font-weight: 600; }
 
 .side-box {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(15,23,42,0.035);
+    border: 1px solid rgba(15,23,42,0.07);
     border-radius: 10px;
     padding: 10px 12px;
     margin-bottom: 10px;
     font-size: 0.85rem;
 }
-.side-box h4 { margin: 0 0 6px 0; font-size: 0.82rem; letter-spacing: .03em; text-transform: uppercase; color: #9db3ff !important; }
+.side-box h4 { margin: 0 0 6px 0; font-size: 0.82rem; letter-spacing: .03em; text-transform: uppercase; color: #2451c9 !important; }
 .side-box ul { margin: 0; padding-left: 18px; }
-.disclaimer { border-left: 3px solid #f87171; }
-.disclaimer h4 { color: #fca5a5 !important; }
+.disclaimer { border-left: 3px solid #dc2626; }
+.disclaimer h4 { color: #b91c1c !important; }
 
 .block-container .stButton button {
     background: var(--accent-blue) !important;
@@ -1705,18 +1742,18 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
 .footer-note { text-align:center; color: var(--text-muted) !important; font-size: 0.78rem; margin-top: 30px; }
 
 .ai-card {
-    background: linear-gradient(135deg, rgba(124,92,252,0.14), rgba(20,184,196,0.08));
-    border: 1px solid rgba(124,92,252,0.35);
+    background: linear-gradient(135deg, rgba(124,92,252,0.08), rgba(13,154,166,0.06));
+    border: 1px solid rgba(124,92,252,0.22);
     border-radius: 14px;
     padding: 18px 20px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
     margin-bottom: 16px;
 }
 .ai-card h5, .ai-card p, .ai-card li { color: var(--text-dark) !important; }
 .ai-badge {
     display: inline-block;
-    background: rgba(124,92,252,0.28);
-    color: #d7cbff !important;
+    background: rgba(124,92,252,0.16);
+    color: #6d28d9 !important;
     border-radius: 999px;
     padding: 3px 11px;
     font-size: 0.72rem;
@@ -1733,18 +1770,18 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
 .app-header {
     position: relative;
     overflow: hidden;
-    border: 1px solid rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.18);
 }
 .app-header::after {
     content: "";
     position: absolute;
     inset: 0;
-    background: radial-gradient(circle at 85% -20%, rgba(77,141,255,0.35), transparent 55%),
-                radial-gradient(circle at 5% 130%, rgba(20,184,196,0.25), transparent 50%);
+    background: radial-gradient(circle at 85% -20%, rgba(255,255,255,0.30), transparent 55%),
+                radial-gradient(circle at 5% 130%, rgba(255,255,255,0.18), transparent 50%);
     pointer-events: none;
 }
 .app-header h1 {
-    background: linear-gradient(90deg, #ffffff 30%, #9fd7ff 100%);
+    background: linear-gradient(90deg, #ffffff 30%, #eafcff 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -1754,8 +1791,8 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
 }
 .card:hover {
-    border-color: rgba(77,141,255,0.35);
-    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    border-color: rgba(59,120,255,0.28);
+    box-shadow: 0 6px 20px rgba(15,23,42,0.10);
 }
 
 .section-heading {
@@ -1775,28 +1812,28 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     width: 28px;
     height: 28px;
     border-radius: 8px;
-    background: rgba(77,141,255,0.18);
+    background: rgba(59,120,255,0.12);
     font-size: 0.95rem;
 }
 
 .chip {
     transition: transform 0.15s ease;
-    border: 1px solid rgba(255,255,255,0.05);
+    border: 1px solid rgba(15,23,42,0.05);
 }
 .chip:hover { transform: translateY(-2px); }
 
 .block-container .stButton button {
     transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.15s ease;
-    box-shadow: 0 2px 10px rgba(77,141,255,0.25);
+    box-shadow: 0 2px 10px rgba(59,120,255,0.20);
 }
 .block-container .stButton button:hover {
     transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(77,141,255,0.35);
+    box-shadow: 0 6px 16px rgba(59,120,255,0.28);
 }
 
 .block-container [data-testid="stTabs"] [data-baseweb="tab-list"] {
     gap: 4px;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+    border-bottom: 1px solid rgba(15,23,42,0.08);
 }
 .block-container [data-testid="stTabs"] [data-baseweb="tab"] {
     color: var(--text-muted) !important;
@@ -1806,7 +1843,7 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
 .block-container [data-testid="stTabs"] [data-baseweb="tab"] p { color: inherit !important; }
 .block-container [data-testid="stTabs"] [aria-selected="true"] {
     color: var(--text-dark) !important;
-    background: rgba(77,141,255,0.12);
+    background: rgba(59,120,255,0.10);
 }
 .block-container [data-testid="stTabs"] [data-baseweb="tab-highlight"] {
     background-color: var(--accent-blue) !important;
@@ -1819,15 +1856,15 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.07);
+    background: rgba(15,23,42,0.025);
+    border: 1px solid rgba(15,23,42,0.08);
     border-radius: 12px;
     padding: 12px 16px;
     transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 .cert-item:hover {
-    background: rgba(124,92,252,0.10);
-    border-color: rgba(124,92,252,0.4);
+    background: rgba(124,92,252,0.07);
+    border-color: rgba(124,92,252,0.3);
     transform: translateX(2px);
 }
 .cert-item a, .cert-item a * { text-decoration: none !important; }
@@ -1837,21 +1874,56 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     width: 34px; height: 34px;
     border-radius: 9px;
     display: flex; align-items: center; justify-content: center;
-    background: linear-gradient(135deg, rgba(245,146,27,0.25), rgba(124,92,252,0.25));
+    background: linear-gradient(135deg, rgba(234,139,12,0.18), rgba(124,92,252,0.18));
     font-size: 1.05rem;
 }
 .cert-title, .cert-title * { color: var(--text-dark) !important; font-weight: 600; font-size: 0.92rem; }
 .cert-provider, .cert-provider * { color: var(--text-muted) !important; font-size: 0.78rem; }
-.cert-arrow, .cert-arrow * { color: #7fb1ff !important; font-weight: 700; font-size: 1rem; }
+.cert-arrow, .cert-arrow * { color: #2563eb !important; font-weight: 700; font-size: 1rem; }
 .cert-for-tag {
     display: inline-block;
-    background: rgba(245,146,27,0.18);
-    color: #fbbf6d !important;
+    background: rgba(234,139,12,0.14);
+    color: #b45309 !important;
     border-radius: 999px;
     padding: 2px 10px;
     font-size: 0.72rem;
     font-weight: 700;
     margin: 2px 6px 8px 0;
+}
+
+/* AI-driven career ranking module */
+.ai-rank-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    background: rgba(124,92,252,0.05);
+    border: 1px solid rgba(124,92,252,0.18);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+}
+.ai-rank-num {
+    flex-shrink: 0;
+    width: 26px; height: 26px;
+    border-radius: 999px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--accent-purple);
+    color: #ffffff !important;
+    font-weight: 700;
+    font-size: 0.8rem;
+}
+.ai-rank-body { flex: 1; }
+.ai-rank-title { font-weight: 700; color: var(--text-dark) !important; font-size: 0.95rem; }
+.ai-rank-why { color: var(--text-muted) !important; font-size: 0.82rem; margin-top: 2px; }
+.ai-rank-note {
+    display: inline-block;
+    background: rgba(13,154,166,0.10);
+    border: 1px solid rgba(13,154,166,0.25);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.8rem;
+    color: var(--text-muted) !important;
+    margin-bottom: 10px;
 }
 </style>
 """
@@ -2082,24 +2154,24 @@ if page == "Dashboard":
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.markdown(f"##### Predicted Salary ({display_currency})")
                 st.markdown(f"**Estimated range:** {format_money(min_disp, display_currency)} – {format_money(max_disp, display_currency)}")
-                st.markdown(f"<h2 style='color:#60a5fa !important;margin:4px 0;'>{format_money(salary_disp, display_currency)}</h2>", unsafe_allow_html=True)
+                st.markdown(f"<h2 style='color:#2563eb !important;margin:4px 0;'>{format_money(salary_disp, display_currency)}</h2>", unsafe_allow_html=True)
 
                 position = "Above Average" if salary_inr >= avg_reference_inr else "Below Average"
-                pos_color = "#4ade80" if position == "Above Average" else "#f87171"
+                pos_color = "#16a34a" if position == "Above Average" else "#dc2626"
 
                 gauge_max = max(max_disp * 1.1, salary_disp * 1.1, 1)
                 fig = go.Figure(go.Indicator(
                     mode="gauge+number",
                     value=salary_disp,
-                    number={"prefix": CURRENCY_SYMBOLS.get(display_currency, ""), "valueformat": ",.0f", "font": {"color": "#eef1fb"}},
+                    number={"prefix": CURRENCY_SYMBOLS.get(display_currency, ""), "valueformat": ",.0f", "font": {"color": "#1b2540"}},
                     gauge={
-                        "axis": {"range": [0, gauge_max], "tickcolor": "#93a0c4"},
-                        "bar": {"color": "#4d8dff"},
+                        "axis": {"range": [0, gauge_max], "tickcolor": "#5b6b8c"},
+                        "bar": {"color": "#3b78ff"},
                         "bgcolor": "rgba(0,0,0,0)",
                         "steps": [
-                            {"range": [0, gauge_max * 0.33], "color": "#7f1d1d"},
-                            {"range": [gauge_max * 0.33, gauge_max * 0.66], "color": "#78350f"},
-                            {"range": [gauge_max * 0.66, gauge_max], "color": "#14532d"},
+                            {"range": [0, gauge_max * 0.33], "color": "#fde2e1"},
+                            {"range": [gauge_max * 0.33, gauge_max * 0.66], "color": "#fdecc8"},
+                            {"range": [gauge_max * 0.66, gauge_max], "color": "#d9f2d5"},
                         ],
                         "threshold": {"line": {"color": pos_color, "width": 4}, "value": salary_disp},
                     },
@@ -2107,7 +2179,7 @@ if page == "Dashboard":
                 fig.update_layout(
                     height=220, margin=dict(l=20, r=20, t=10, b=10),
                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="#eef1fb"),
+                    font=dict(color="#1b2540"),
                 )
                 st.plotly_chart(fig, use_container_width=True)
                 st.markdown(f"Market position: **<span style='color:{pos_color} !important'>{position}</span>** vs. peers with a similar profile", unsafe_allow_html=True)
@@ -2129,17 +2201,17 @@ if page == "Dashboard":
                 bar_fig = go.Figure(go.Bar(
                     x=["Min", "Avg", "Max"],
                     y=[min_disp, salary_disp, max_disp],
-                    marker_color=["#f87171", "#4d8dff", "#4ade80"],
+                    marker_color=["#dc2626", "#3b78ff", "#16a34a"],
                     text=[format_money(v, display_currency) for v in [min_disp, salary_disp, max_disp]],
                     textposition="outside",
-                    textfont=dict(color="#eef1fb"),
+                    textfont=dict(color="#1b2540"),
                 ))
                 bar_fig.update_layout(
                     height=260, margin=dict(l=20, r=20, t=10, b=10), showlegend=False,
                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="#eef1fb"),
-                    xaxis=dict(gridcolor="rgba(255,255,255,0.08)"),
-                    yaxis=dict(gridcolor="rgba(255,255,255,0.08)"),
+                    font=dict(color="#1b2540"),
+                    xaxis=dict(gridcolor="rgba(15,23,42,0.08)"),
+                    yaxis=dict(gridcolor="rgba(15,23,42,0.08)"),
                 )
                 st.plotly_chart(bar_fig, use_container_width=True)
                 st.markdown("</div>", unsafe_allow_html=True)
@@ -2188,16 +2260,16 @@ if page == "Dashboard":
             g_salaries_disp = [convert_from_inr(s, display_currency, rates) for s in g_salaries_inr]
             growth_fig = go.Figure(go.Scatter(
                 x=g_years, y=g_salaries_disp, mode="lines+markers",
-                line=dict(color="#4ade80", width=3), marker=dict(size=5, color="#4ade80"),
+                line=dict(color="#16a34a", width=3), marker=dict(size=5, color="#16a34a"),
             ))
             growth_fig.update_layout(
                 height=280, margin=dict(l=20, r=20, t=10, b=10),
                 xaxis_title="Years of Experience",
                 yaxis_title=f"Salary ({display_currency})",
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                font=dict(color="#eef1fb"),
-                xaxis=dict(gridcolor="rgba(255,255,255,0.08)"),
-                yaxis=dict(gridcolor="rgba(255,255,255,0.08)"),
+                font=dict(color="#1b2540"),
+                xaxis=dict(gridcolor="rgba(15,23,42,0.08)"),
+                yaxis=dict(gridcolor="rgba(15,23,42,0.08)"),
             )
             st.plotly_chart(growth_fig, use_container_width=True)
             if ai_override_active:
