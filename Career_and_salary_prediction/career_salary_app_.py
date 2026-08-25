@@ -43,7 +43,7 @@ ASSISTANT_API_KEY = _resolve_assistant_api_key()
 # gemini-1.5-flash / gemini-1.5-pro were retired by Google in Sept 2025 and
 # now 404. Use current stable models, with "gemini-flash-latest" first so
 # this keeps working automatically as Google rolls new stable releases out.
-ASSISTANT_MODEL_CANDIDATES = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-2.5-flash"]
+ASSISTANT_MODEL_CANDIDATES = [ "gemini-3.5-flash","gemini-flash-latest", "gemini-2.5-flash"]
 
 # Per‑request timeout for Gemini calls has been removed (no timeout override
 # is passed to the SDK, so its own default/no-limit behavior applies).
