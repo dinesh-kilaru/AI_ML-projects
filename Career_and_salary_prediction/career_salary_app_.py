@@ -9,6 +9,7 @@ import streamlit as st
 import plotly.graph_objects as go
 from scipy.sparse import hstack, csr_matrix
 from sklearn.feature_extraction.text import TfidfVectorizer
+from urllib.parse import quote
 import io
 
 # ---------------------------------------------------------------------------
@@ -674,6 +675,288 @@ JOB_ROLE_INFO = {
 }
 ALL_JOB_ROLES = sorted(set(JOB_ROLES) | set(JOB_ROLE_INFO.keys()))
 
+# ---------------------------------------------------------------------------
+# Certification / course recommendations
+# ---------------------------------------------------------------------------
+# Curated, real, well-known certifications and courses per career. Kept as a
+# static in-app table (same philosophy as STATIC_CAREER_PROFILES above) so
+# it never depends on a network call or the extended Drive dataset. Links
+# point at stable top-level program pages, never deep/guessed URLs. Any
+# career with fewer than 2 curated entries — or not in this table at all,
+# e.g. a custom-typed "Other" role — is padded out with generic Coursera /
+# LinkedIn Learning search links via get_certifications_for_career() below.
+CERTIFICATION_RECOMMENDATIONS = {
+    "Software Engineer": [
+        {"title": "Meta Back-End Developer Professional Certificate", "provider": "Coursera (Meta)", "url": "https://www.coursera.org/professional-certificates/meta-back-end-developer"},
+        {"title": "AWS Certified Cloud Practitioner", "provider": "AWS", "url": "https://aws.amazon.com/certification/certified-cloud-practitioner/"},
+    ],
+    "Data Scientist": [
+        {"title": "IBM Data Science Professional Certificate", "provider": "Coursera (IBM)", "url": "https://www.coursera.org/professional-certificates/ibm-data-science"},
+        {"title": "Google Advanced Data Analytics Certificate", "provider": "Coursera (Google)", "url": "https://www.coursera.org/professional-certificates/google-advanced-data-analytics"},
+    ],
+    "Project Manager": [
+        {"title": "Project Management Professional (PMP)", "provider": "PMI", "url": "https://www.pmi.org/certifications/project-management-pmp"},
+        {"title": "Google Project Management Certificate", "provider": "Coursera (Google)", "url": "https://www.coursera.org/professional-certificates/google-project-management"},
+    ],
+    "Data administrator": [
+        {"title": "Oracle Database SQL Certified Associate", "provider": "Oracle", "url": "https://education.oracle.com/oracle-database-sql-certified-associate/pexam_1Z0-071"},
+        {"title": "Microsoft Certified: Azure Database Administrator Associate", "provider": "Microsoft Learn", "url": "https://learn.microsoft.com/en-us/credentials/certifications/azure-database-administrator-associate/"},
+    ],
+    "Machine Learning Engineer": [
+        {"title": "DeepLearning.AI TensorFlow Developer Certificate", "provider": "Coursera (DeepLearning.AI)", "url": "https://www.coursera.org/professional-certificates/tensorflow-in-practice"},
+        {"title": "AWS Certified Machine Learning – Specialty", "provider": "AWS", "url": "https://aws.amazon.com/certification/certified-machine-learning-specialty/"},
+    ],
+    "AI Researcher": [
+        {"title": "Deep Learning Specialization", "provider": "Coursera (DeepLearning.AI)", "url": "https://www.coursera.org/specializations/deep-learning"},
+        {"title": "Machine Learning Specialization", "provider": "Coursera (Stanford)", "url": "https://www.coursera.org/specializations/machine-learning-introduction"},
+    ],
+    "Data Analyst": [
+        {"title": "Google Data Analytics Professional Certificate", "provider": "Coursera (Google)", "url": "https://www.coursera.org/professional-certificates/google-data-analytics"},
+        {"title": "Microsoft Certified: Power BI Data Analyst Associate", "provider": "Microsoft Learn", "url": "https://learn.microsoft.com/en-us/credentials/certifications/power-bi-data-analyst-associate/"},
+    ],
+    "Data Engineer": [
+        {"title": "Google Cloud Professional Data Engineer", "provider": "Google Cloud", "url": "https://cloud.google.com/certification/data-engineer"},
+        {"title": "IBM Data Engineering Professional Certificate", "provider": "Coursera (IBM)", "url": "https://www.coursera.org/professional-certificates/ibm-data-engineer"},
+    ],
+    "Database Administrator": [
+        {"title": "Oracle Database SQL Certified Associate", "provider": "Oracle", "url": "https://education.oracle.com/oracle-database-sql-certified-associate/pexam_1Z0-071"},
+        {"title": "Microsoft Certified: Azure Database Administrator Associate", "provider": "Microsoft Learn", "url": "https://learn.microsoft.com/en-us/credentials/certifications/azure-database-administrator-associate/"},
+    ],
+    "DevOps Engineer": [
+        {"title": "AWS Certified DevOps Engineer – Professional", "provider": "AWS", "url": "https://aws.amazon.com/certification/certified-devops-engineer-professional/"},
+        {"title": "Certified Kubernetes Administrator (CKA)", "provider": "CNCF", "url": "https://www.cncf.io/training/certification/cka/"},
+    ],
+    "Site Reliability Engineer": [
+        {"title": "Certified Kubernetes Administrator (CKA)", "provider": "CNCF", "url": "https://www.cncf.io/training/certification/cka/"},
+        {"title": "Google Cloud Professional Cloud DevOps Engineer", "provider": "Google Cloud", "url": "https://cloud.google.com/certification/cloud-devops-engineer"},
+    ],
+    "Cloud Architect": [
+        {"title": "AWS Certified Solutions Architect – Professional", "provider": "AWS", "url": "https://aws.amazon.com/certification/certified-solutions-architect-professional/"},
+        {"title": "Microsoft Certified: Azure Solutions Architect Expert", "provider": "Microsoft Learn", "url": "https://learn.microsoft.com/en-us/credentials/certifications/azure-solutions-architect-expert/"},
+    ],
+    "Solutions Architect": [
+        {"title": "AWS Certified Solutions Architect – Associate", "provider": "AWS", "url": "https://aws.amazon.com/certification/certified-solutions-architect-associate/"},
+        {"title": "TOGAF Certification", "provider": "The Open Group", "url": "https://www.opengroup.org/togaf"},
+    ],
+    "Full Stack Developer": [
+        {"title": "Meta Full-Stack Developer Professional Certificate", "provider": "Coursera (Meta)", "url": "https://www.coursera.org/professional-certificates/meta-full-stack-developer"},
+        {"title": "Full Stack Curriculum", "provider": "The Odin Project", "url": "https://www.theodinproject.com/"},
+    ],
+    "Backend Developer": [
+        {"title": "Meta Back-End Developer Professional Certificate", "provider": "Coursera (Meta)", "url": "https://www.coursera.org/professional-certificates/meta-back-end-developer"},
+        {"title": "OpenJS Node.js Application Developer Certification", "provider": "OpenJS Foundation", "url": "https://openjsf.org/certification/"},
+    ],
+    "Frontend Developer": [
+        {"title": "Meta Front-End Developer Professional Certificate", "provider": "Coursera (Meta)", "url": "https://www.coursera.org/professional-certificates/meta-front-end-developer"},
+        {"title": "Responsive Web Design Certification", "provider": "freeCodeCamp", "url": "https://www.freecodecamp.org/learn/2022/responsive-web-design/"},
+    ],
+    "Mobile App Developer": [
+        {"title": "Meta iOS Developer Professional Certificate", "provider": "Coursera (Meta)", "url": "https://www.coursera.org/professional-certificates/meta-ios-developer"},
+        {"title": "Associate Android Developer Certification", "provider": "Google", "url": "https://grow.google/certificates/android-developer/"},
+    ],
+    "Game Developer": [
+        {"title": "Unity Certifications", "provider": "Unity", "url": "https://unity.com/products/unity-certifications"},
+        {"title": "Game Design and Development Specialization", "provider": "Coursera (Michigan State)", "url": "https://www.coursera.org/specializations/game-development"},
+    ],
+    "QA Engineer": [
+        {"title": "ISTQB Certified Tester Foundation Level", "provider": "ISTQB", "url": "https://www.istqb.org/certifications/certified-tester-foundation-level"},
+        {"title": "Software Testing and Automation Specialization", "provider": "Coursera", "url": "https://www.coursera.org/specializations/software-testing-automation"},
+    ],
+    "Systems Administrator": [
+        {"title": "CompTIA Server+", "provider": "CompTIA", "url": "https://www.comptia.org/certifications/server"},
+        {"title": "Microsoft Certified: Windows Server Hybrid Administrator Associate", "provider": "Microsoft Learn", "url": "https://learn.microsoft.com/en-us/credentials/certifications/windows-server-hybrid-administrator/"},
+    ],
+    "Network Engineer": [
+        {"title": "Cisco Certified Network Associate (CCNA)", "provider": "Cisco", "url": "https://www.cisco.com/site/us/en/learn/training-certifications/certifications/ccna/index.html"},
+        {"title": "CompTIA Network+", "provider": "CompTIA", "url": "https://www.comptia.org/certifications/network"},
+    ],
+    "Cybersecurity Analyst": [
+        {"title": "CompTIA Security+", "provider": "CompTIA", "url": "https://www.comptia.org/certifications/security"},
+        {"title": "Google Cybersecurity Professional Certificate", "provider": "Coursera (Google)", "url": "https://www.coursera.org/professional-certificates/google-cybersecurity"},
+    ],
+    "Security Engineer": [
+        {"title": "Certified Information Systems Security Professional (CISSP)", "provider": "ISC2", "url": "https://www.isc2.org/certifications/cissp"},
+        {"title": "OffSec Certified Professional (OSCP)", "provider": "OffSec", "url": "https://www.offsec.com/courses/pen-200/"},
+    ],
+    "IT Support Specialist": [
+        {"title": "Google IT Support Professional Certificate", "provider": "Coursera (Google)", "url": "https://www.coursera.org/professional-certificates/google-it-support"},
+        {"title": "CompTIA A+", "provider": "CompTIA", "url": "https://www.comptia.org/certifications/a"},
+    ],
+    "Technical Writer": [
+        {"title": "Technical Writing Courses", "provider": "Google Developers", "url": "https://developers.google.com/tech-writing"},
+        {"title": "Certified Professional Technical Communicator (CPTC)", "provider": "STC", "url": "https://www.stc.org/certification/"},
+    ],
+    "Statistician": [
+        {"title": "Statistics with R Specialization", "provider": "Coursera (Duke)", "url": "https://www.coursera.org/specializations/statistics"},
+        {"title": "SAS Certified Statistical Business Analyst", "provider": "SAS", "url": "https://www.sas.com/en_us/certification/credentials/advanced-analytics/statistical-business-analyst.html"},
+    ],
+    "Blockchain Developer": [
+        {"title": "Blockchain Specialization", "provider": "Coursera (SUNY Buffalo)", "url": "https://www.coursera.org/specializations/blockchain"},
+        {"title": "Certified Blockchain Developer", "provider": "Blockchain Council", "url": "https://www.blockchain-council.org/certifications/"},
+    ],
+    "UI/UX Designer": [
+        {"title": "Google UX Design Professional Certificate", "provider": "Coursera (Google)", "url": "https://www.coursera.org/professional-certificates/google-ux-design"},
+        {"title": "Certified Usability Analyst (CUA)", "provider": "Human Factors International", "url": "https://www.humanfactors.com/certification/"},
+    ],
+    "Graphic Designer": [
+        {"title": "Graphic Design Specialization", "provider": "Coursera (CalArts)", "url": "https://www.coursera.org/specializations/graphic-design"},
+        {"title": "Adobe Certified Professional", "provider": "Adobe", "url": "https://www.adobe.com/creativecloud/certification.html"},
+    ],
+    "Product Designer": [
+        {"title": "Google UX Design Professional Certificate", "provider": "Coursera (Google)", "url": "https://www.coursera.org/professional-certificates/google-ux-design"},
+        {"title": "Product Design Specialization", "provider": "Coursera (CalArts)", "url": "https://www.coursera.org/specializations/product-design"},
+    ],
+    "Interior Designer": [
+        {"title": "Autodesk Certified User: AutoCAD", "provider": "Autodesk", "url": "https://www.autodesk.com/certification/autodesk-certified-user"},
+    ],
+    "Product Manager": [
+        {"title": "Certified Product Manager", "provider": "AIPMM", "url": "https://www.aipmm.com/certification/"},
+        {"title": "Digital Product Management Specialization", "provider": "Coursera (UVA Darden)", "url": "https://www.coursera.org/specializations/uva-darden-digital-product-management"},
+    ],
+    "Program Manager": [
+        {"title": "Project Management Professional (PMP)", "provider": "PMI", "url": "https://www.pmi.org/certifications/project-management-pmp"},
+        {"title": "Program Management Professional (PgMP)", "provider": "PMI", "url": "https://www.pmi.org/certifications/program-management-pgmp"},
+    ],
+    "Scrum Master": [
+        {"title": "Certified ScrumMaster (CSM)", "provider": "Scrum Alliance", "url": "https://www.scrumalliance.org/get-certified/scrum-master-track/certified-scrummaster"},
+        {"title": "Professional Scrum Master I (PSM I)", "provider": "Scrum.org", "url": "https://www.scrum.org/professional-scrum-certifications/professional-scrum-master-i-certification"},
+    ],
+    "Operations Manager": [
+        {"title": "Six Sigma Green Belt Certification", "provider": "ASQ", "url": "https://asq.org/cert/six-sigma-green-belt"},
+        {"title": "Operations Management Specialization", "provider": "Coursera (Wharton)", "url": "https://www.coursera.org/specializations/operations-management"},
+    ],
+    "Engineering Manager": [
+        {"title": "Leading People and Teams Specialization", "provider": "Coursera (Michigan)", "url": "https://www.coursera.org/specializations/leading-teams"},
+        {"title": "Certified ScrumMaster (CSM)", "provider": "Scrum Alliance", "url": "https://www.scrumalliance.org/get-certified/scrum-master-track/certified-scrummaster"},
+    ],
+    "Business Analyst": [
+        {"title": "Certified Business Analysis Professional (CBAP)", "provider": "IIBA", "url": "https://www.iiba.org/business-analysis-certifications/cbap/"},
+        {"title": "Google Business Intelligence Certificate", "provider": "Coursera (Google)", "url": "https://www.coursera.org/professional-certificates/google-business-intelligence"},
+    ],
+    "Financial Analyst": [
+        {"title": "Chartered Financial Analyst (CFA)", "provider": "CFA Institute", "url": "https://www.cfainstitute.org/en/programs/cfa"},
+        {"title": "Financial Modeling & Valuation Analyst (FMVA)", "provider": "CFI", "url": "https://corporatefinanceinstitute.com/certifications/fmva/"},
+    ],
+    "Accountant": [
+        {"title": "Certified Public Accountant (CPA)", "provider": "AICPA", "url": "https://www.aicpa-cima.com/becoming-cpa"},
+        {"title": "Certified Management Accountant (CMA)", "provider": "IMA", "url": "https://www.imanet.org/cma-certification"},
+    ],
+    "Investment Banker": [
+        {"title": "Chartered Financial Analyst (CFA)", "provider": "CFA Institute", "url": "https://www.cfainstitute.org/en/programs/cfa"},
+        {"title": "Financial Modeling & Valuation Analyst (FMVA)", "provider": "CFI", "url": "https://corporatefinanceinstitute.com/certifications/fmva/"},
+    ],
+    "Supply Chain Analyst": [
+        {"title": "Certified Supply Chain Professional (CSCP)", "provider": "ASCM", "url": "https://www.ascm.org/certifications/cscp/"},
+        {"title": "Supply Chain Management Specialization", "provider": "Coursera (Rutgers)", "url": "https://www.coursera.org/specializations/supply-chain-management"},
+    ],
+    "Consultant": [
+        {"title": "Certified Management Consultant (CMC)", "provider": "IMC USA", "url": "https://www.imcusa.org/page/CMCCertification"},
+    ],
+    "Entrepreneur": [
+        {"title": "Entrepreneurship Specialization", "provider": "Coursera (Wharton)", "url": "https://www.coursera.org/specializations/wharton-entrepreneurship"},
+        {"title": "Startup School", "provider": "Y Combinator", "url": "https://www.startupschool.org/"},
+    ],
+    "HR Manager": [
+        {"title": "SHRM Certified Professional (SHRM-CP)", "provider": "SHRM", "url": "https://www.shrm.org/credentials/certification"},
+        {"title": "Professional in Human Resources (PHR)", "provider": "HRCI", "url": "https://www.hrci.org/our-programs/our-certifications/phr"},
+    ],
+    "Recruiter": [
+        {"title": "Talent Acquisition Courses", "provider": "LinkedIn Learning", "url": "https://www.linkedin.com/learning/"},
+    ],
+    "Marketing Manager": [
+        {"title": "Google Digital Marketing & E-commerce Certificate", "provider": "Coursera (Google)", "url": "https://www.coursera.org/professional-certificates/google-digital-marketing-ecommerce"},
+        {"title": "HubSpot Content Marketing Certification", "provider": "HubSpot Academy", "url": "https://academy.hubspot.com/courses/content-marketing"},
+    ],
+    "Digital Marketing Specialist": [
+        {"title": "Google Digital Marketing & E-commerce Certificate", "provider": "Coursera (Google)", "url": "https://www.coursera.org/professional-certificates/google-digital-marketing-ecommerce"},
+        {"title": "HubSpot Inbound Marketing Certification", "provider": "HubSpot Academy", "url": "https://academy.hubspot.com/courses/inbound-marketing"},
+    ],
+    "Content Writer": [
+        {"title": "HubSpot Content Marketing Certification", "provider": "HubSpot Academy", "url": "https://academy.hubspot.com/courses/content-marketing"},
+        {"title": "Good with Words: Writing and Editing Specialization", "provider": "Coursera (Michigan)", "url": "https://www.coursera.org/specializations/writing-editing"},
+    ],
+    "Sales Executive": [
+        {"title": "HubSpot Sales Software Certification", "provider": "HubSpot Academy", "url": "https://academy.hubspot.com/courses/sales-hub-fundamentals"},
+    ],
+    "Sales Manager": [
+        {"title": "HubSpot Sales Software Certification", "provider": "HubSpot Academy", "url": "https://academy.hubspot.com/courses/sales-hub-fundamentals"},
+    ],
+    "Customer Success Manager": [
+        {"title": "Certified Customer Success Manager (CCSM)", "provider": "SuccessCOACHING", "url": "https://www.successcoaching.co/certifications/ccsm-level-1"},
+    ],
+    "Legal Counsel": [
+        {"title": "Certified Compliance & Ethics Professional (CCEP)", "provider": "SCCE", "url": "https://www.corporatecompliance.org/certification/ccep"},
+    ],
+    "Nurse": [
+        {"title": "NCLEX-RN Licensure Examination", "provider": "NCSBN", "url": "https://www.ncsbn.org/nclex.htm"},
+        {"title": "Basic Life Support (BLS) Certification", "provider": "American Heart Association", "url": "https://cpr.heart.org/en/courses/basic-life-support-course"},
+    ],
+    "Physician": [
+        {"title": "United States Medical Licensing Examination (USMLE)", "provider": "USMLE", "url": "https://www.usmle.org/"},
+    ],
+    "Pharmacist": [
+        {"title": "NAPLEX Licensure Examination", "provider": "NABP", "url": "https://nabp.pharmacy/programs/naplex/"},
+    ],
+    "Teacher": [
+        {"title": "Google Certified Educator", "provider": "Google for Education", "url": "https://edu.google.com/intl/ALL_us/for-educators/certifications/"},
+    ],
+    "Civil Engineer": [
+        {"title": "Professional Engineer (PE) License", "provider": "NCEES", "url": "https://ncees.org/engineering/pe/"},
+        {"title": "Autodesk Certified Professional: AutoCAD", "provider": "Autodesk", "url": "https://www.autodesk.com/certification/autodesk-certified-professional"},
+    ],
+    "Mechanical Engineer": [
+        {"title": "Professional Engineer (PE) License", "provider": "NCEES", "url": "https://ncees.org/engineering/pe/"},
+        {"title": "SolidWorks Certified Professional (CSWP)", "provider": "Dassault Systèmes", "url": "https://www.solidworks.com/certifications"},
+    ],
+    "Electrical Engineer": [
+        {"title": "Professional Engineer (PE) License", "provider": "NCEES", "url": "https://ncees.org/engineering/pe/"},
+    ],
+    "Architect": [
+        {"title": "Architect Registration Examination (ARE)", "provider": "NCARB", "url": "https://www.ncarb.org/gain-experience-take-tests/are"},
+    ],
+    "Photographer": [
+        {"title": "Adobe Certified Professional", "provider": "Adobe", "url": "https://www.adobe.com/creativecloud/certification.html"},
+    ],
+    "Video Editor": [
+        {"title": "Adobe Certified Professional", "provider": "Adobe", "url": "https://www.adobe.com/creativecloud/certification.html"},
+    ],
+    "Chef": [
+        {"title": "ServSafe Food Handler Certification", "provider": "ServSafe", "url": "https://www.servsafe.com/"},
+    ],
+}
+
+
+def _generic_cert_links(career):
+    """Never-fabricated fallback: real, working search pages on well-known
+    learning platforms, built from the career name itself rather than a
+    guessed deep link. Used to pad out curated entries below 2, and as the
+    sole source for careers with no curated table entry at all (including
+    a custom-typed "Other" role)."""
+    q = quote(str(career))
+    return [
+        {"title": f"{career} courses & certificates", "provider": "Coursera", "url": f"https://www.coursera.org/search?query={q}"},
+        {"title": f"{career} courses", "provider": "LinkedIn Learning", "url": f"https://www.linkedin.com/learning/search?keywords={q}"},
+    ]
+
+
+def get_certifications_for_career(career):
+    """Curated certification/course recommendations for a career, padded
+    with generic search links up to at least 2 items. Falls back entirely
+    to generic search links for anything not in the curated table."""
+    if not career or not str(career).strip():
+        return []
+    key = str(career).strip()
+    curated = None
+    for k, v in CERTIFICATION_RECOMMENDATIONS.items():
+        if k.lower() == key.lower():
+            curated = list(v)
+            break
+    if curated is None:
+        return _generic_cert_links(key)
+    if len(curated) < 2:
+        curated = curated + _generic_cert_links(key)[: 2 - len(curated)]
+    return curated[:3]
+
 
 def role_relative_index(job_role, base_role=JOB_ROLE_ANCHOR):
     base = JOB_ROLE_INFO.get(base_role, 70000)
@@ -1058,10 +1341,10 @@ def _ai_top_career(data):
     return None
 
 
-def render_ai_opinion_card(data, error, badge_text="AI second opinion", note=None):
+def render_ai_opinion_card(data, error, badge_text="AI estimate", note=None):
     """Pure rendering of the independent-AI card from already-fetched
-    data/error — kept separate from the fetch itself so the Dashboard can
-    fetch the AI's opinion once, decide whether to use its numbers as the
+    data/error — kept separate from the fetch itself so a caller can fetch
+    the AI's opinion once, decide whether to use its numbers as the
     headline prediction, and still show this exact card. `note`, if given,
     is an extra st.success line about how the result is being used
     elsewhere on the page (e.g. "used as the headline estimate below")."""
@@ -1070,19 +1353,19 @@ def render_ai_opinion_card(data, error, badge_text="AI second opinion", note=Non
 
     st.markdown('<div class="ai-card">', unsafe_allow_html=True)
     st.markdown(f'<span class="ai-badge">{badge_text}</span>', unsafe_allow_html=True)
-    st.markdown("##### 🧠 AI Second Opinion")
+    st.markdown("##### 🧠 AI-Powered Estimate")
     st.caption(
-        "Gemini's own read on your profile, reasoning from general market "
-        "knowledge rather than this app's trained models — a useful sanity "
-        "check that keeps working even if the model files can't load."
+        "A read on your profile grounded in general market knowledge — a "
+        "useful reference point that keeps working even if the model files "
+        "can't load."
     )
 
     if error or not data:
         if error:
             print(f"[Independent AI opinion] request failed: {error}")
         st.info(
-            "The independent AI opinion isn't available right now — showing "
-            "the trained model's prediction instead."
+            "The AI estimate isn't available right now — showing the "
+            "trained model's prediction instead."
         )
         st.markdown("</div>", unsafe_allow_html=True)
         return
@@ -1096,7 +1379,7 @@ def render_ai_opinion_card(data, error, badge_text="AI second opinion", note=Non
         st.caption(reasoning)
 
     if careers:
-        st.markdown("**Careers Gemini would suggest:**")
+        st.markdown("**Careers worth considering:**")
         for item in careers[:3]:
             if isinstance(item, dict):
                 career = str(item.get("career", "")).strip()
@@ -1118,14 +1401,14 @@ def fetch_and_render_ai_opinion(age, education, years, job_role, location, skill
     prediction) don't have to fetch a second time."""
     if not ASSISTANT_API_KEY:
         return None, None
-    with st.spinner("Getting a second opinion from Gemini…"):
+    with st.spinner("Getting an AI-powered estimate…"):
         data, error = _fetch_independent_ai_opinion(
             age, education, years, job_role, location,
             tuple(skills_selected), tuple(interests_selected), display_currency,
         )
     render_ai_opinion_card(
         data, error,
-        badge_text=badge_text or "AI second opinion",
+        badge_text=badge_text or "AI estimate",
         note=note,
     )
     return data, error
@@ -1388,6 +1671,134 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     text-transform: uppercase;
     margin-bottom: 8px;
 }
+
+/* ---------------------------------------------------------------------
+   UI polish: gradient headline, hover-lift cards, section dividers,
+   nicer chips/gauges, and the new certifications module.
+--------------------------------------------------------------------- */
+.app-header {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.06);
+}
+.app-header::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 85% -20%, rgba(77,141,255,0.35), transparent 55%),
+                radial-gradient(circle at 5% 130%, rgba(20,184,196,0.25), transparent 50%);
+    pointer-events: none;
+}
+.app-header h1 {
+    background: linear-gradient(90deg, #ffffff 30%, #9fd7ff 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.card, .ai-card {
+    transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+.card:hover {
+    border-color: rgba(77,141,255,0.35);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+}
+
+.section-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 10px 0;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.02rem;
+    color: var(--text-dark) !important;
+}
+.section-heading .icon-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: rgba(77,141,255,0.18);
+    font-size: 0.95rem;
+}
+
+.chip {
+    transition: transform 0.15s ease;
+    border: 1px solid rgba(255,255,255,0.05);
+}
+.chip:hover { transform: translateY(-2px); }
+
+.block-container .stButton button {
+    transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.15s ease;
+    box-shadow: 0 2px 10px rgba(77,141,255,0.25);
+}
+.block-container .stButton button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(77,141,255,0.35);
+}
+
+.block-container [data-testid="stTabs"] [data-baseweb="tab-list"] {
+    gap: 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.block-container [data-testid="stTabs"] [data-baseweb="tab"] {
+    color: var(--text-muted) !important;
+    font-weight: 600;
+    border-radius: 8px 8px 0 0;
+}
+.block-container [data-testid="stTabs"] [data-baseweb="tab"] p { color: inherit !important; }
+.block-container [data-testid="stTabs"] [aria-selected="true"] {
+    color: var(--text-dark) !important;
+    background: rgba(77,141,255,0.12);
+}
+.block-container [data-testid="stTabs"] [data-baseweb="tab-highlight"] {
+    background-color: var(--accent-blue) !important;
+}
+
+/* Certification module */
+.cert-grid { display: flex; flex-direction: column; gap: 10px; }
+.cert-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 12px;
+    padding: 12px 16px;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+.cert-item:hover {
+    background: rgba(124,92,252,0.10);
+    border-color: rgba(124,92,252,0.4);
+    transform: translateX(2px);
+}
+.cert-item a, .cert-item a * { text-decoration: none !important; }
+.cert-main { display: flex; align-items: center; gap: 12px; }
+.cert-icon {
+    flex-shrink: 0;
+    width: 34px; height: 34px;
+    border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, rgba(245,146,27,0.25), rgba(124,92,252,0.25));
+    font-size: 1.05rem;
+}
+.cert-title, .cert-title * { color: var(--text-dark) !important; font-weight: 600; font-size: 0.92rem; }
+.cert-provider, .cert-provider * { color: var(--text-muted) !important; font-size: 0.78rem; }
+.cert-arrow, .cert-arrow * { color: #7fb1ff !important; font-weight: 700; font-size: 1rem; }
+.cert-for-tag {
+    display: inline-block;
+    background: rgba(245,146,27,0.18);
+    color: #fbbf6d !important;
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    margin: 2px 6px 8px 0;
+}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -1551,18 +1962,9 @@ if page == "Dashboard":
             ai_min_inr, ai_max_inr = _extract_ai_numeric_range(ai_data)
             ai_career = _ai_top_career(ai_data)
             ai_override_active = ai_min_inr is not None and ai_max_inr is not None
-
-            render_ai_opinion_card(
-                ai_data, ai_error,
-                badge_text="Detailed prediction and recommendation",
-                note=(
-                    "Using this estimate as the headline prediction below."
-                    if ai_override_active else
-                    "Couldn't parse a usable range from the AI's reply, so "
-                    "the trained model's prediction is used as the headline "
-                    "below instead."
-                ),
-            )
+            # Note: the independent AI opinion is used silently to sharpen the
+            # headline numbers below when it returns something usable — it is
+            # not surfaced as its own separate, labeled "second opinion" card.
 
             # Trained joblib models still run regardless of the AI result —
             # this is both the fallback source and the comparison figure.
@@ -1604,7 +2006,7 @@ if page == "Dashboard":
                 "ml_salary_inr": ml_salary_inr, "ml_top_career": ml_top_career,
             }
 
-            source_label = "Gemini's AI second opinion" if ai_override_active else "the trained model (AI opinion unavailable)"
+            source_label = "an AI-refined market estimate" if ai_override_active else "our trained prediction model"
             st.caption(f"The figures below come from **{source_label}**.")
 
             c1, c2, c3, c4 = st.columns(4)
@@ -1657,8 +2059,8 @@ if page == "Dashboard":
                 st.markdown(f"Market position: **<span style='color:{pos_color} !important'>{position}</span>** vs. peers with a similar profile", unsafe_allow_html=True)
                 if ai_override_active:
                     st.caption(
-                        "💡 From the AI second opinion above — see 'Trained model's "
-                        "own prediction' below for the joblib model's figure."
+                        "💡 Refined using current market knowledge — see 'Trained "
+                        "model's own prediction' below for the joblib model's figure."
                     )
                 else:
                     method_note = salary_method_note(salary_method, location, job_role)
@@ -1756,6 +2158,61 @@ if page == "Dashboard":
                 )
             st.markdown("</div>", unsafe_allow_html=True)
 
+            # -----------------------------------------------------------
+            # Certification / course recommendations, tied to the top
+            # career match (and, when it differs, the runner-up) so the
+            # suggestions actually reflect what was just recommended.
+            # -----------------------------------------------------------
+            cert_careers = [top_career]
+            if blended_matches:
+                runner_up = next(
+                    (c for c, _, _ in blended_matches if c and c != top_career), None
+                )
+                if runner_up:
+                    cert_careers.append(runner_up)
+
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="section-heading"><span class="icon-badge">🎓</span>'
+                "Recommended Certifications &amp; Courses</div>",
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                "A starting point for closing the gap between where you are "
+                "and your matched career — not an endorsement or a ranking."
+            )
+            for cert_career in cert_careers:
+                certs = get_certifications_for_career(cert_career)
+                if not certs:
+                    continue
+                st.markdown(
+                    f'<span class="cert-for-tag">For {cert_career}</span>',
+                    unsafe_allow_html=True,
+                )
+                items_html = "".join(
+                    f"""
+                    <a href="{c['url']}" target="_blank" rel="noopener">
+                    <div class="cert-item">
+                        <div class="cert-main">
+                            <div class="cert-icon">📘</div>
+                            <div>
+                                <div class="cert-title">{c['title']}</div>
+                                <div class="cert-provider">{c['provider']}</div>
+                            </div>
+                        </div>
+                        <div class="cert-arrow">↗</div>
+                    </div>
+                    </a>
+                    """
+                    for c in certs if c.get("url")
+                )
+                st.markdown(f'<div class="cert-grid">{items_html}</div>', unsafe_allow_html=True)
+            st.caption(
+                "Links go to official certification/course pages — always verify "
+                "current cost, prerequisites, and relevance before enrolling."
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+
             known_classes = list(Models["career_label_encoder"].classes_) if MODELS_OK else []
             extra_matches = recommend_extended_careers(
                 extended_index, skills_selected, interests_selected,
@@ -1795,19 +2252,56 @@ if page == "Dashboard":
                     st.caption(method_note)
                 if ai_override_active:
                     st.caption(
-                        "Shown for comparison only — the AI second opinion above is "
-                        "used as the headline prediction."
+                        "Shown for comparison only — the headline figures above "
+                        "have been refined further using current market knowledge."
                     )
+                st.markdown(
+                    '<div class="side-box disclaimer" style="margin-top:10px;">'
+                    "<h4>Disclaimer</h4>"
+                    "<p style='margin:0;'>This machine-learning estimate comes from "
+                    "models trained on a small sample dataset — treat it as "
+                    "directional guidance, not an exact figure. Actual compensation "
+                    "varies by company, negotiation, and market conditions.</p>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
 
     elif predict_clicked and not MODELS_OK:
         st.error("The trained model isn't available right now, so a full prediction can't run.")
-        st.caption("You can still get a quick estimate from the AI second opinion below.")
+        st.caption("You can still get a quick AI-powered estimate below.")
         fetch_and_render_ai_opinion(
             age=age, education=education, years=years, job_role=job_role,
             location=location, skills_selected=skills_selected,
             interests_selected=interests_selected,
             display_currency=CURRENCY_BY_LOCATION.get(location, "USD"),
         )
+        fallback_certs = get_certifications_for_career(job_role) if job_role else []
+        if fallback_certs:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="section-heading"><span class="icon-badge">🎓</span>'
+                "Recommended Certifications &amp; Courses</div>",
+                unsafe_allow_html=True,
+            )
+            items_html = "".join(
+                f"""
+                <a href="{c['url']}" target="_blank" rel="noopener">
+                <div class="cert-item">
+                    <div class="cert-main">
+                        <div class="cert-icon">📘</div>
+                        <div>
+                            <div class="cert-title">{c['title']}</div>
+                            <div class="cert-provider">{c['provider']}</div>
+                        </div>
+                    </div>
+                    <div class="cert-arrow">↗</div>
+                </div>
+                </a>
+                """
+                for c in fallback_certs if c.get("url")
+            )
+            st.markdown(f'<div class="cert-grid">{items_html}</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
 elif page == "AI Career Assistant":
     st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -1929,8 +2423,11 @@ else:
   exchange-rate lookup (falling back to fixed rates if that's unavailable).
 - **AI Career Assistant** is a chat grounded in the model's known roles, skills, and your
   most recent prediction.
-- **AI second opinion** is a separate Gemini call that reasons from general market
-  knowledge alone — a useful sanity check that works even if the trained models can't load.
+- **AI-powered estimate** reasons from general market knowledge to sharpen the
+  headline salary figure and top career pick, and keeps working even if the
+  trained models can't load.
+- **Certification & course recommendations** are matched to your top career pick
+  from a curated table of real, well-known certifications and courses.
         """
     )
     st.markdown(
