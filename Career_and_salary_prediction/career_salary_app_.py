@@ -1543,7 +1543,7 @@ if page == "Dashboard":
             # afterward in a clearly-labeled "for comparison" expander
             # instead of driving the headline figures.
             # -----------------------------------------------------------
-            with st.spinner("Getting a second opinion from Gemini…"):
+            with st.spinner("Predicting salary and Recommending better career path...."):
                 ai_data, ai_error = _fetch_independent_ai_opinion(
                     age, education, years, job_role, location,
                     tuple(skills_selected), tuple(interests_selected), display_currency,
@@ -1554,7 +1554,7 @@ if page == "Dashboard":
 
             render_ai_opinion_card(
                 ai_data, ai_error,
-                badge_text="AI second opinion · used as headline",
+                badge_text="Detailed prediction and recommendation",
                 note=(
                     "Using this estimate as the headline prediction below."
                     if ai_override_active else
