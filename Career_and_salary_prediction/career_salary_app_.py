@@ -2417,7 +2417,8 @@ if page == "Dashboard":
                     )
                     st.markdown(req_pills, unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
-
+if error:
+    print(f"[Independent AI opinion] request failed: {error}")
             # -----------------------------------------------------------------
             # Trained model's own prediction, kept visible as a secondary,
             # clearly-labeled comparison figure. The independent AI opinion
