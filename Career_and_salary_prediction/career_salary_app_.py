@@ -2620,4 +2620,4 @@ else:
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
-st.markdown('<p class="footer-note">Built with Python, scikit-learn, Gemini &amp; Streamlit</p>', unsafe_allow_html=True)
+st.markdown('<p class="footer-note">Built with Python, ML,scikit-learn, Gemini AI &amp; Streamlit</p>', unsafe_allow_html=True)
