@@ -1,6 +1,8 @@
 import os
+import re
 import sys
 import json
+import html
 import requests
 import numpy as np
 import pandas as pd
@@ -54,6 +56,18 @@ def semicolon_tokenizer(text):
 # this module, so both need to see it before joblib.load runs.
 sys.modules["__main__"].semicolon_tokenizer = semicolon_tokenizer
 sys.modules[__name__].semicolon_tokenizer = semicolon_tokenizer
+
+
+def esc(value):
+    """HTML-escape a value before it's interpolated into an
+    unsafe_allow_html=True markdown string. Several pieces of text that
+    reach the page this way aren't fully trusted: the free-typed "Other"
+    job role/location, career names the Gemini API hands back, and
+    skills/descriptions pulled from an externally-editable Google Sheet
+    CSV. Escaping them keeps stray "<", ">", or "&" from being interpreted
+    as markup instead of shown as text."""
+    return html.escape(str(value))
+
 
 # ---------------------------------------------------------------------------
 # Model loading (unchanged logic, just cached + wrapped in a spinner)
@@ -182,7 +196,6 @@ def _clear_cached_data_files():
     st.cache_resource.clear()
     st.cache_data.clear()
 
-import re
 
 EXTENDED_CSV_URL = "https://drive.google.com/uc?export=download&id=14EC3VJ3fRJJbEM41xo2V95Ul6kwzPUUS"
 
@@ -956,6 +969,47 @@ def get_certifications_for_career(career):
     if len(curated) < 2:
         curated = curated + _generic_cert_links(key)[: 2 - len(curated)]
     return curated[:3]
+
+
+def _cert_item_html(cert):
+    """Single-line HTML for one certification card.
+
+    This is the fix for the bug in the screenshot: the old version built
+    each card from an indented multi-line f-string, then joined several of
+    those f-strings back to back with nothing in between. That left a
+    line containing only whitespace between every pair of cards. Streamlit's
+    markdown renderer treats a line starting with 4+ spaces as an indented
+    *code block*, and a whitespace-only line closes off whatever HTML block
+    came before it — so the first card (which opened the HTML block) rendered
+    fine, and every card after it landed inside a fresh, indented block that
+    got treated as literal code instead of markup. Emitting each card as one
+    unindented line, with no blank lines between them, avoids both triggers.
+    """
+    title = esc(cert.get("title", ""))
+    provider = esc(cert.get("provider", ""))
+    url = esc(cert.get("url", ""))
+    return (
+        f'<a href="{url}" target="_blank" rel="noopener">'
+        f'<div class="cert-item"><div class="cert-main">'
+        f'<div class="cert-icon">📘</div>'
+        f'<div><div class="cert-title">{title}</div>'
+        f'<div class="cert-provider">{provider}</div></div>'
+        f'</div><div class="cert-arrow">↗</div></div></a>'
+    )
+
+
+def render_certifications(certs, career_label=None):
+    """Render a full cert-grid card block for one career's certifications."""
+    certs = [c for c in certs if c.get("url")]
+    if not certs:
+        return
+    if career_label:
+        st.markdown(
+            f'<span class="cert-for-tag">For {esc(career_label)}</span>',
+            unsafe_allow_html=True,
+        )
+    items_html = "".join(_cert_item_html(c) for c in certs)
+    st.markdown(f'<div class="cert-grid">{items_html}</div>', unsafe_allow_html=True)
 
 
 def role_relative_index(job_role, base_role=JOB_ROLE_ANCHOR):
@@ -2182,31 +2236,7 @@ if page == "Dashboard":
                 "and your matched career — not an endorsement or a ranking."
             )
             for cert_career in cert_careers:
-                certs = get_certifications_for_career(cert_career)
-                if not certs:
-                    continue
-                st.markdown(
-                    f'<span class="cert-for-tag">For {cert_career}</span>',
-                    unsafe_allow_html=True,
-                )
-                items_html = "".join(
-                    f"""
-                    <a href="{c['url']}" target="_blank" rel="noopener">
-                    <div class="cert-item">
-                        <div class="cert-main">
-                            <div class="cert-icon">📘</div>
-                            <div>
-                                <div class="cert-title">{c['title']}</div>
-                                <div class="cert-provider">{c['provider']}</div>
-                            </div>
-                        </div>
-                        <div class="cert-arrow">↗</div>
-                    </div>
-                    </a>
-                    """
-                    for c in certs if c.get("url")
-                )
-                st.markdown(f'<div class="cert-grid">{items_html}</div>', unsafe_allow_html=True)
+                render_certifications(get_certifications_for_career(cert_career), cert_career)
             st.caption(
                 "Links go to official certification/course pages — always verify "
                 "current cost, prerequisites, and relevance before enrolling."
