@@ -14,7 +14,6 @@ import plotly.graph_objects as go
 from scipy.sparse import hstack, csr_matrix
 from sklearn.feature_extraction.text import TfidfVectorizer
 from urllib.parse import quote
-from google import genai
 import io
 
 # ---------------------------------------------------------------------------
@@ -1352,7 +1351,7 @@ commentary before or after) with exactly these keys:
   interests, education, experience), and a one-sentence "why" string
 """
     try:
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        genai.configure(api_key=ASSISTANT_API_KEY)  # <--- FIXED: use resolved key
         gmodel = genai.GenerativeModel(model_name=ASSISTANT_MODEL_CANDIDATES[0])
         response = gmodel.generate_content(prompt)
         raw_text = (response.text or "").strip()
@@ -2553,7 +2552,7 @@ elif page == "AI Career Assistant":
                     reply = "Sorry, I couldn't reach the assistant right now. Please try again in a moment."
 
                 if reply is None:
-                    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                    genai.configure(api_key=ASSISTANT_API_KEY)  # <--- FIXED: use resolved key
                     history = [
                         {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
                         for m in st.session_state["chat_messages"][:-1]
