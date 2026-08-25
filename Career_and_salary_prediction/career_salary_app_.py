@@ -5,6 +5,7 @@ import json
 import html
 import random
 import datetime
+import google.generativeai as genai
 import requests
 import numpy as np
 import pandas as pd
