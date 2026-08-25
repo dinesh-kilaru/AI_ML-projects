@@ -40,14 +40,10 @@ def _resolve_assistant_api_key():
 
 ASSISTANT_API_KEY = _resolve_assistant_api_key()
 
-# Order matters: try the most stable, widely available model first.
-# gemini-pro is the older model that works with v1beta; the others are
-# newer and may not be available on that endpoint.
-ASSISTANT_MODEL_CANDIDATES = [
-    "gemini-pro",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-]
+# gemini-1.5-flash / gemini-1.5-pro were retired by Google in Sept 2025 and
+# now 404. Use current stable models, with "gemini-flash-latest" first so
+# this keeps working automatically as Google rolls new stable releases out.
+ASSISTANT_MODEL_CANDIDATES = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-2.5-flash"]
 
 # Per‑request timeout in seconds for Gemini calls.
 ASSISTANT_CALL_TIMEOUT_S = 20
@@ -1168,9 +1164,10 @@ def _fetch_independent_ai_opinion(age, education, years, job_role, location, ski
     if not ASSISTANT_API_KEY:
         return None, "No API key is configured for the independent AI."
     try:
-        import google.generativeai as genai
+        from google import genai
+        from google.genai import types
     except ImportError as exc:
-        return None, f"The `google-generativeai` package isn't installed: {exc}"
+        return None, f"The `google-genai` package isn't installed: {exc}"
 
     skills_list = list(skills_tuple)
     interests_list = list(interests_tuple)
@@ -1205,14 +1202,17 @@ commentary before or after) with exactly these keys:
   rating how well that career fits THIS candidate's profile (skills,
   interests, education, experience), and a one-sentence "why" string
 """
-    genai.configure(api_key=ASSISTANT_API_KEY)
+    client = genai.Client(api_key=ASSISTANT_API_KEY)
     last_exc = None
     for candidate in ASSISTANT_MODEL_CANDIDATES:
         try:
-            model = genai.GenerativeModel(candidate)
-            response = model.generate_content(
-                prompt,
-                request_options={"timeout": ASSISTANT_CALL_TIMEOUT_S}
+            # Timeout is in milliseconds in the new SDK.
+            response = client.models.generate_content(
+                model=candidate,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    http_options=types.HttpOptions(timeout=ASSISTANT_CALL_TIMEOUT_S * 1000),
+                ),
             )
             raw_text = (response.text or "").strip()
             cleaned = re.sub(r"^```(?:json)?|```$", "", raw_text, flags=re.MULTILINE).strip()
@@ -2343,16 +2343,20 @@ elif page == "AI Career Assistant":
                 error_detail = None
 
                 try:
-                    import google.generativeai as genai
+                    from google import genai
+                    from google.genai import types
                 except ImportError as exc:
-                    error_detail = f"google-generativeai not installed: {exc}"
+                    error_detail = f"google-genai not installed: {exc}"
                     reply = f"Sorry, I couldn't reach the assistant right now. Error: {error_detail}"
 
                 if reply is None:
                     try:
-                        genai.configure(api_key=ASSISTANT_API_KEY)
+                        client = genai.Client(api_key=ASSISTANT_API_KEY)
                         history = [
-                            {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
+                            types.Content(
+                                role="user" if m["role"] == "user" else "model",
+                                parts=[types.Part(text=m["content"])],
+                            )
                             for m in st.session_state["chat_messages"][:-1]
                         ]
                         system_ctx = build_system_context()
@@ -2364,15 +2368,17 @@ elif page == "AI Career Assistant":
                             model_order = [model_order] + [m for m in ASSISTANT_MODEL_CANDIDATES if m != model_order]
                         for candidate in model_order:
                             try:
-                                model = genai.GenerativeModel(
-                                    model_name=candidate,
-                                    system_instruction=system_ctx,
+                                chat = client.chats.create(
+                                    model=candidate,
+                                    config=types.GenerateContentConfig(
+                                        system_instruction=system_ctx,
+                                        http_options=types.HttpOptions(
+                                            timeout=ASSISTANT_CALL_TIMEOUT_S * 1000
+                                        ),
+                                    ),
+                                    history=history,
                                 )
-                                chat = model.start_chat(history=history)
-                                response = chat.send_message(
-                                    user_msg,
-                                    request_options={"timeout": ASSISTANT_CALL_TIMEOUT_S}
-                                )
+                                response = chat.send_message(user_msg)
                                 reply = response.text
                                 st.session_state["_working_gemini_model"] = candidate
                                 break
