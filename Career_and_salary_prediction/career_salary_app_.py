@@ -1351,7 +1351,7 @@ commentary before or after) with exactly these keys:
   interests, education, experience), and a one-sentence "why" string
 """
     try:
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        genai.configure(api_key=ASSISTANT_API_KEY)
         gmodel = genai.GenerativeModel(model_name=ASSISTANT_MODEL_CANDIDATES[0])
         response = gmodel.generate_content(prompt)
         raw_text = (response.text or "").strip()
