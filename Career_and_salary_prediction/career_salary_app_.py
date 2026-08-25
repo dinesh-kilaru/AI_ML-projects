@@ -2547,7 +2547,7 @@ elif page == "AI Career Assistant":
                 reply = None
 
                 try:
-                    from google import genai
+                    import google.generativeai as genai
                 except ImportError as exc:
                     print(f"[AI Career Assistant] google-generativeai not installed: {exc}")
                     reply = "Sorry, I couldn't reach the assistant right now. Please try again in a moment."
