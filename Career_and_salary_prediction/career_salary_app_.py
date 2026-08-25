@@ -1291,9 +1291,6 @@ def format_money(amount, currency):
         return f"{symbol}{amount:,.0f}"
     return f"{symbol}{amount:,.2f}"
 
-
-# ---------------------------------------------------------------------------
-# Independent AI opinion (Dashboard) — a second, self-contained AI call
 # ---------------------------------------------------------------------------
 # Deliberately separate from everything above: it never touches Models,
 # extended_index, salary_model.joblib, career_recommendation_model.pkl, or
@@ -2294,7 +2291,7 @@ if page == "Dashboard":
                 if matches_source == "ai":
                     st.caption(
                         "Ranked by the independent AI's own assessment of fit "
-                        "for your profile — not the trained classifier."
+                        "for your profile"
                     )
                 else:
                     st.caption(
