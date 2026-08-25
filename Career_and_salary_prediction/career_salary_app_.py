@@ -45,8 +45,14 @@ def _resolve_assistant_api_key():
 
 
 ASSISTANT_API_KEY = _resolve_assistant_api_key()
-# Fixed to a single model on purpose — no fallback to other Gemini models.
-ASSISTANT_MODEL_CANDIDATES = ["gemini-2.5-flash"]
+# Google retires/renames Gemini models frequently, and a single pinned
+# model name (the previous "gemini-2.5-flash" only, no fallback) breaks
+# outright the moment that one model is deprecated — which is exactly what
+# was happening here. "gemini-flash-latest" is a rolling alias Google keeps
+# pointed at its current default Flash model, so it self-updates; the dated
+# names behind it are kept as fallbacks in case the alias or a given model
+# is unavailable for this API key/region.
+ASSISTANT_MODEL_CANDIDATES = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.0-flash"]
 
 
 def semicolon_tokenizer(text):
@@ -1310,10 +1316,10 @@ def _fetch_independent_ai_opinion(age, education, years, job_role, location, ski
     if not ASSISTANT_API_KEY:
         return None, "No API key is configured for the independent AI."
     try:
-        import google.generativeai as genai
+        from google import genai
     except ImportError as exc:
         return None, (
-            "The `google-generativeai` package isn't installed in this "
+            "The `google-genai` package isn't installed in this "
             f"environment.\n\n{exc}"
         )
 
@@ -1350,18 +1356,21 @@ commentary before or after) with exactly these keys:
   rating how well that career fits THIS candidate's profile (skills,
   interests, education, experience), and a one-sentence "why" string
 """
-    try:
-        genai.configure(api_key=ASSISTANT_API_KEY)  # <--- FIXED: use resolved key
-        gmodel = genai.GenerativeModel(model_name=ASSISTANT_MODEL_CANDIDATES[0])
-        response = gmodel.generate_content(prompt)
-        raw_text = (response.text or "").strip()
-        cleaned = re.sub(r"^```(?:json)?|```$", "", raw_text, flags=re.MULTILINE).strip()
-        data = json.loads(cleaned)
-        if not isinstance(data, dict):
-            raise ValueError("response JSON wasn't an object")
-        return data, None
-    except Exception as exc:  # noqa: BLE001
-        return None, str(exc)
+    client = genai.Client(api_key=ASSISTANT_API_KEY)
+    last_exc = None
+    for candidate in ASSISTANT_MODEL_CANDIDATES:
+        try:
+            response = client.models.generate_content(model=candidate, contents=prompt)
+            raw_text = (response.text or "").strip()
+            cleaned = re.sub(r"^```(?:json)?|```$", "", raw_text, flags=re.MULTILINE).strip()
+            data = json.loads(cleaned)
+            if not isinstance(data, dict):
+                raise ValueError("response JSON wasn't an object")
+            return data, None
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            continue
+    return None, str(last_exc)
 
 
 def _extract_ai_numeric_range(data):
@@ -2546,15 +2555,19 @@ elif page == "AI Career Assistant":
                 reply = None
 
                 try:
-                    import google.generativeai as genai
+                    from google import genai
+                    from google.genai import types as genai_types
                 except ImportError as exc:
-                    print(f"[AI Career Assistant] google-generativeai not installed: {exc}")
+                    print(f"[AI Career Assistant] google-genai not installed: {exc}")
                     reply = "Sorry, I couldn't reach the assistant right now. Please try again in a moment."
 
                 if reply is None:
-                    genai.configure(api_key=ASSISTANT_API_KEY)  # <--- FIXED: use resolved key
+                    client = genai.Client(api_key=ASSISTANT_API_KEY)  # <--- FIXED: use resolved key
                     history = [
-                        {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
+                        genai_types.Content(
+                            role="user" if m["role"] == "user" else "model",
+                            parts=[genai_types.Part.from_text(text=m["content"])],
+                        )
                         for m in st.session_state["chat_messages"][:-1]
                     ]
                     system_ctx = build_system_context()
@@ -2568,11 +2581,11 @@ elif page == "AI Career Assistant":
                         model_order = [model_order] + [m for m in ASSISTANT_MODEL_CANDIDATES if m != model_order]
                     for candidate in model_order:
                         try:
-                            gmodel = genai.GenerativeModel(
-                                model_name=candidate,
-                                system_instruction=system_ctx,
+                            chat = client.chats.create(
+                                model=candidate,
+                                config=genai_types.GenerateContentConfig(system_instruction=system_ctx),
+                                history=history,
                             )
-                            chat = gmodel.start_chat(history=history)
                             response = chat.send_message(user_msg)
                             reply = response.text
                             st.session_state["_working_gemini_model"] = candidate
