@@ -45,8 +45,8 @@ ASSISTANT_API_KEY = _resolve_assistant_api_key()
 # this keeps working automatically as Google rolls new stable releases out.
 ASSISTANT_MODEL_CANDIDATES = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-2.5-flash"]
 
-# Per‑request timeout in seconds for Gemini calls.
-ASSISTANT_CALL_TIMEOUT_S = 20
+# Per‑request timeout for Gemini calls has been removed (no timeout override
+# is passed to the SDK, so its own default/no-limit behavior applies).
 
 
 def semicolon_tokenizer(text):
@@ -1206,13 +1206,9 @@ commentary before or after) with exactly these keys:
     last_exc = None
     for candidate in ASSISTANT_MODEL_CANDIDATES:
         try:
-            # Timeout is in milliseconds in the new SDK.
             response = client.models.generate_content(
                 model=candidate,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    http_options=types.HttpOptions(timeout=ASSISTANT_CALL_TIMEOUT_S * 1000),
-                ),
             )
             raw_text = (response.text or "").strip()
             cleaned = re.sub(r"^```(?:json)?|```$", "", raw_text, flags=re.MULTILINE).strip()
@@ -2372,9 +2368,6 @@ elif page == "AI Career Assistant":
                                     model=candidate,
                                     config=types.GenerateContentConfig(
                                         system_instruction=system_ctx,
-                                        http_options=types.HttpOptions(
-                                            timeout=ASSISTANT_CALL_TIMEOUT_S * 1000
-                                        ),
                                     ),
                                     history=history,
                                 )
