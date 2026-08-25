@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 from scipy.sparse import hstack, csr_matrix
 from sklearn.feature_extraction.text import TfidfVectorizer
 from urllib.parse import quote
+from google import genai
 import io
 
 # ---------------------------------------------------------------------------
@@ -2546,7 +2547,7 @@ elif page == "AI Career Assistant":
                 reply = None
 
                 try:
-                    import google.generativeai as genai
+                    from google import genai
                 except ImportError as exc:
                     print(f"[AI Career Assistant] google-generativeai not installed: {exc}")
                     reply = "Sorry, I couldn't reach the assistant right now. Please try again in a moment."
