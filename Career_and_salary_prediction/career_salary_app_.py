@@ -40,9 +40,9 @@ def _resolve_assistant_api_key():
 
 ASSISTANT_API_KEY = _resolve_assistant_api_key()
 
-# Stable, well‑tested models – use the same library that worked before.
-# Keep only the most reliable model to avoid 404 errors.
-ASSISTANT_MODEL_CANDIDATES = ["gemini-1.5-flash", "gemini-1.5-pro"]
+# Only use the stable, well-supported Gemini model.
+# gemini-1.5-pro may not be available in all regions/API versions.
+ASSISTANT_MODEL_CANDIDATES = ["gemini-1.5-flash"]
 
 # Per‑request timeout in seconds for Gemini calls.
 ASSISTANT_CALL_TIMEOUT_S = 20
@@ -1205,7 +1205,6 @@ commentary before or after) with exactly these keys:
     for candidate in ASSISTANT_MODEL_CANDIDATES:
         try:
             model = genai.GenerativeModel(candidate)
-            # Set a per‑request timeout to avoid hanging.
             response = model.generate_content(
                 prompt,
                 request_options={"timeout": ASSISTANT_CALL_TIMEOUT_S}
