@@ -28,13 +28,7 @@ st.set_page_config(
 
 
 def _resolve_assistant_api_key():
-    """Read the Gemini API key from Streamlit secrets or the environment.
-
-    Keeping the key out of source is intentional: a key committed to a repo
-    gets auto-revoked by GitHub/Google secret scanning, which silently
-    breaks every AI feature with no visible cause. Set GEMINI_API_KEY in
-    `.streamlit/secrets.toml` or as an environment variable instead.
-    """
+    """Read the Gemini API key from Streamlit secrets or the environment."""
     try:
         key = st.secrets.get("GEMINI_API_KEY")
         if key:
@@ -45,39 +39,20 @@ def _resolve_assistant_api_key():
 
 
 ASSISTANT_API_KEY = _resolve_assistant_api_key()
-# Google retires/renames Gemini models frequently, and a single pinned
-# model name (the previous "gemini-2.5-flash" only, no fallback) breaks
-# outright the moment that one model is deprecated — which is exactly what
-# was happening here. "gemini-flash-latest" is a rolling alias Google keeps
-# pointed at its current default Flash model, so it self-updates; the dated
-# names behind it are kept as fallbacks in case the alias or a given model
-# is unavailable for this API key/region.
-ASSISTANT_MODEL_CANDIDATES = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.0-flash"]
+
+# Order matters: try the most stable, broadly available model first.
+# gemini-2.5-flash is not yet generally available — remove it to avoid
+# unnecessary failures.
+ASSISTANT_MODEL_CANDIDATES = [
+    "gemini-2.0-flash",
+    "gemini-flash-latest",
+    "gemini-1.5-flash",
+]
 
 # Per-call wall-clock budget for a single Gemini request attempt, in seconds.
+# The SDK's http_options.timeout handles network timeouts; this value is
+# used as a safety net (but we rely on the SDK's own timeout to avoid threads).
 ASSISTANT_CALL_TIMEOUT_S = 20
-
-
-def _call_with_hard_timeout(fn, timeout_s=ASSISTANT_CALL_TIMEOUT_S):
-    """Run fn() with a real wall-clock timeout and raise TimeoutError if it's
-    exceeded. HttpOptions.timeout on the google-genai client *should* cover
-    this on its own, but some SDK versions still hang indefinitely on a
-    stalled socket regardless of that setting (a known upstream issue) — this
-    is the belt-and-braces backstop so the app can never freeze on it. Uses a
-    thread because the underlying HTTP call isn't cancellable, so the stuck
-    call is abandoned (not killed) and the daemon thread is left to finish or
-    die on its own; it does not block the app from moving on.
-    """
-    import concurrent.futures
-    # Deliberately not a `with` block: ThreadPoolExecutor.__exit__ calls
-    # shutdown(wait=True), which would block until the hung thread finishes
-    # (possibly never) and reintroduce the exact freeze this exists to avoid.
-    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    future = pool.submit(fn)
-    try:
-        return future.result(timeout=timeout_s)
-    finally:
-        pool.shutdown(wait=False)
 
 
 def semicolon_tokenizer(text):
@@ -93,12 +68,7 @@ sys.modules[__name__].semicolon_tokenizer = semicolon_tokenizer
 
 def esc(value):
     """HTML-escape a value before it's interpolated into an
-    unsafe_allow_html=True markdown string. Several pieces of text that
-    reach the page this way aren't fully trusted: the free-typed "Other"
-    job role/location, career names the Gemini API hands back, and
-    skills/descriptions pulled from an externally-editable Google Sheet
-    CSV. Escaping them keeps stray "<", ">", or "&" from being interpreted
-    as markup instead of shown as text."""
+    unsafe_allow_html=True markdown string."""
     return html.escape(str(value))
 
 
@@ -120,17 +90,7 @@ MODEL_URLS = {
 def _download_drive_bytes(url, timeout=30):
     """GET a Google Drive 'uc?export=download' link and return the raw file
     bytes, robust to the interstitial HTML page Drive serves instead of the
-    real file when it can't (or won't) stream a direct download — e.g. the
-    "Google Drive can't scan this file for viruses" confirmation page, or a
-    "download quota exceeded for this file" notice. Both cases return an
-    HTTP 200 with an HTML body, so a plain requests.get() silently succeeds
-    while actually downloading a warning page instead of your CSV/joblib —
-    which is exactly what produced the empty-vocabulary error (the "CSV"
-    being parsed had none of the expected columns).
-
-    Raises RuntimeError with a clear, actionable message if Drive still
-    won't hand over the real file after attempting the confirm-token flow.
-    """
+    real file."""
     session = requests.Session()
     resp = session.get(url, timeout=timeout, stream=True)
     resp.raise_for_status()
@@ -140,12 +100,10 @@ def _download_drive_bytes(url, timeout=30):
 
     if _is_html(resp):
         token = None
-        # Older Drive flow: confirmation token comes back as a cookie.
         for k, v in resp.cookies.items():
             if k.startswith("download_warning"):
                 token = v
                 break
-        # Newer Drive flow: token is embedded in the warning page itself.
         if token is None:
             m = re.search(r'confirm=([0-9A-Za-z_-]+)', resp.text)
             if m:
@@ -209,7 +167,7 @@ try:
     Models = load_models()
     MODELS_OK = True
     MODELS_ERROR = None
-except Exception as exc:  # noqa: BLE001
+except Exception as exc:
     Models = {}
     MODELS_OK = False
     MODELS_ERROR = str(exc)
@@ -217,12 +175,7 @@ except Exception as exc:  # noqa: BLE001
 
 def _clear_cached_data_files():
     """Delete the locally downloaded model/joblib/CSV copies and clear
-    Streamlit's resource/data caches. download_if_missing() and the
-    extended-career-index loader both skip re-downloading whenever a
-    local copy already exists — which means updating a file on Google
-    Drive (a new joblib, an extended CSV) has NO effect on an already-
-    running deployment until the stale local copies are cleared. Call
-    this (via the sidebar button below) after replacing any Drive file."""
+    Streamlit's resource/data caches."""
     import shutil
     for folder in ("Models", "data"):
         shutil.rmtree(folder, ignore_errors=True)
@@ -233,8 +186,6 @@ def _clear_cached_data_files():
 EXTENDED_CSV_URL = "https://drive.google.com/uc?export=download&id=14EC3VJ3fRJJbEM41xo2V95Ul6kwzPUUS"
 
 EXTENDED_INDEX_JOBLIB_URL = "https://drive.google.com/uc?export=download&id=1fJpraOlclBa0CQjhlvlOVcvOSYyQEgKv"
-# Local cache of the built TF-IDF index, so it's only downloaded/rebuilt
-# once per deployment instead of every session.
 EXTENDED_INDEX_CACHE_PATH = os.path.join("Models", "extended_career_index.pkl")
 CLEANED_CSV = os.path.join("data", "extended_careers_cleaned.csv")
 LOCAL_RAW_CSV = os.path.join("data", "extended_careers.csv")
@@ -244,11 +195,7 @@ def clean_csv_inplace(src_path, dst_path):
     with open(src_path, "r", encoding="utf-8", errors="replace") as f:
         text = f.read()
 
-    # Heuristic 1: replace Windows newlines inside quotes with a space
-    # This is conservative: only replace newline characters that are between quotes.
     text_fixed = re.sub(r'\"([^\"]*?)\n([^\"]*?)\"', lambda m: '"' + m.group(1).replace('\n', ' ') + m.group(2).replace('\n', ' ') + '"', text, flags=re.S)
-
-    # Heuristic 2: collapse repeated quotes that look like broken escaping
     text_fixed = text_fixed.replace('""', '"')
 
     with open(dst_path, "w", encoding="utf-8") as out:
@@ -256,8 +203,7 @@ def clean_csv_inplace(src_path, dst_path):
 
 
 def load_joblib_from_drive(drive_url, cache_path=None, timeout=30):
-    """Download a joblib/pkl file from Google Drive and return the loaded object.
-    If cache_path is provided, save a local copy for future runs."""
+    """Download a joblib/pkl file from Google Drive and return the loaded object."""
     content = _download_drive_bytes(drive_url, timeout=timeout)
     obj = joblib.load(io.BytesIO(content))
     if cache_path:
@@ -270,12 +216,6 @@ def load_joblib_from_drive(drive_url, cache_path=None, timeout=30):
 
 
 def _ensure_extended_columns(df):
-    """Guarantee every column the rest of the app reads from the extended
-    careers dataset exists, with a sane type/default — regardless of
-    exactly which columns your extended CSV/joblib happens to include.
-    Missing 'description' / 'avg_salary_inr' used to raise a KeyError as
-    soon as a match was rendered; this makes a wider or reshaped dataset
-    degrade gracefully instead of crashing the page."""
     for col in ["career", "skills", "interests", "description"]:
         if col not in df.columns:
             df[col] = ""
@@ -289,12 +229,6 @@ def _ensure_extended_columns(df):
     return df
 
 def _valid_prebuilt_index(obj):
-    """A prebuilt index is only usable if its vectorizer actually has a
-    non-empty vocabulary. A previous bad download (Drive's HTML warning
-    page saved and joblib-dumped as if it were real data) would otherwise
-    get treated as "valid" forever since it satisfies the dict-shape check
-    alone — this is what let the empty-vocabulary error persist across
-    reruns via the local cache."""
     if not (isinstance(obj, dict) and {"df", "vectorizer", "matrix"}.issubset(obj.keys())):
         return False
     vec = obj.get("vectorizer")
@@ -305,25 +239,6 @@ def _valid_prebuilt_index(obj):
 # ---------------------------------------------------------------------------
 # Bundled, no-network fallback career dataset
 # ---------------------------------------------------------------------------
-# Root cause of "every profile recommends the same career": the ONLY source
-# of skill/interest-based variety was the extended-careers dataset on
-# Google Drive. Whenever that download failed (quota hit, bad sharing
-# link, HTML warning page, etc. — see all the handling above), extended_index
-# came back None, coverage_scores in blended_career_matches() was empty for
-# every career, and the app silently fell back to the trained classifier
-# alone — which, per its own class list, is easy to dominate with a single
-# class on a small/imbalanced training sample. Same inputs in, same one
-# career out, no matter what you picked.
-#
-# This table ships inside the app itself (no download, can't fail, can't go
-# stale) and covers the full ALL_JOB_ROLES list. It's merged into whatever
-# the Drive-based index does or doesn't provide, so skill/interest-driven
-# variety no longer has a single external point of failure. Skill/interest
-# tags are drawn from EXTRA_SKILLS / EXTRA_INTERESTS so they line up with
-# what the multiselect widgets actually offer. Salary figures reuse the
-# same broad JOB_ROLE_INFO USD benchmarks (roughly converted to INR) — they
-# are approximations for relative ranking, not precise figures, consistent
-# with every other disclaimer in this file.
 STATIC_CAREER_PROFILES = {
     "Software Engineer": (["python", "java", "git", "system design", "testing", "agile"], ["software engineering", "coding", "technology"], "Builds and maintains software systems and applications."),
     "Data Scientist": (["python", "machine learning", "statistics", "pandas", "data analysis"], ["data science", "ai", "analytics"], "Extracts insights and builds predictive models from data."),
@@ -402,8 +317,6 @@ def _static_career_dataframe():
             "skills": ";".join(skills),
             "interests": ";".join(interests),
             "description": desc,
-            # Rough USD->INR approximation of the JOB_ROLE_INFO benchmark,
-            # for relative display only — see disclaimers near JOB_ROLE_INFO.
             "avg_salary_inr": JOB_ROLE_INFO.get(role, 60000) * 83.0,
         })
     return pd.DataFrame(rows)
@@ -417,10 +330,6 @@ def _build_tfidf_index(df):
 
 
 def _merge_static_fallback(index):
-    """Guarantee the returned index always has broad, varied skill/interest
-    coverage, regardless of whether the Google Drive dataset loaded. If
-    Drive succeeded, this only *adds* careers it didn't already cover; if
-    Drive failed entirely, this becomes the whole dataset instead of None."""
     static_df = _ensure_extended_columns(_static_career_dataframe())
     if index is None or not _valid_prebuilt_index(index):
         return _build_tfidf_index(static_df)
@@ -435,25 +344,6 @@ def _merge_static_fallback(index):
 
 @st.cache_resource(show_spinner="Loading extended career dataset…")
 def load_extended_career_index():
-    """Load extended career index with these behaviors:
-    1) If a local cached index exists at EXTENDED_INDEX_CACHE_PATH and is
-       actually valid (non-empty vocabulary), use it.
-    2) Else download the prebuilt index joblib from EXTENDED_INDEX_JOBLIB_URL.
-    3) Else download the CSV from EXTENDED_CSV_URL and build the TF-IDF index.
-    CSV parsing is tolerant: it will try to auto-detect delimiter and skip malformed lines.
-    Both Drive downloads go through _download_drive_bytes(), which detects
-    and works around the "Download anyway" / quota-exceeded HTML page Drive
-    sometimes serves in place of the actual file — the root cause of the
-    "empty vocabulary; perhaps the documents only contain stop words" error
-    (an HTML warning page has no skills/interests columns, so every row's
-    text ended up blank before it ever reached the vectorizer).
-    A bundled, no-network fallback dataset (STATIC_CAREER_PROFILES) is always
-    merged into the result via _merge_static_fallback(), so this function
-    never returns None or a single-career-dominated dataset purely because
-    a Google Drive download failed — see the comment above
-    STATIC_CAREER_PROFILES for why that mattered.
-    """
-    # 1) Try local cache first, but only trust it if it's genuinely usable.
     if os.path.exists(EXTENDED_INDEX_CACHE_PATH):
         try:
             cached = joblib.load(EXTENDED_INDEX_CACHE_PATH)
@@ -463,8 +353,6 @@ def load_extended_career_index():
         except Exception:
             pass
 
-    # 2) Download the dedicated prebuilt index joblib (fast path — no
-    # TF-IDF refitting needed).
     try:
         index = load_joblib_from_drive(EXTENDED_INDEX_JOBLIB_URL, cache_path=EXTENDED_INDEX_CACHE_PATH)
         if _valid_prebuilt_index(index):
@@ -474,10 +362,6 @@ def load_extended_career_index():
     except Exception as exc:
         st.info(f"Couldn't load the prebuilt career index ({exc}); building it from the CSV instead.")
 
-    # 3) Download CSV and build index (tolerant parsing). Downloaded to
-    # disk and run through clean_csv_inplace first, since a CSV that's
-    # been hand-edited in Sheets/Excel (e.g. to add more careers) commonly
-    # picks up stray embedded newlines/quotes inside quoted fields.
     try:
         content = _download_drive_bytes(EXTENDED_CSV_URL, timeout=30)
         os.makedirs(os.path.dirname(LOCAL_RAW_CSV), exist_ok=True)
@@ -487,7 +371,6 @@ def load_extended_career_index():
         with open(CLEANED_CSV, "r", encoding="utf-8", errors="replace") as f:
             text = f.read()
 
-        # Try to detect delimiter using a small sample
         sample = "\n".join(text.splitlines()[:20])
         try:
             dialect = pd.io.common.csv.Sniffer().sniff(sample)
@@ -510,19 +393,12 @@ def load_extended_career_index():
         st.warning(f"Couldn't load the extended careers dataset: {exc}")
         return _merge_static_fallback(None)
 
-    # Ensure every column the rest of the app relies on exists, with safe
-    # defaults/types (covers a CSV that doesn't include every optional
-    # column, e.g. "description" or "avg_salary_inr").
     df = _ensure_extended_columns(df)
 
-    # Build TF-IDF index
     try:
         corpus = (df["skills"].str.replace(";", " ", regex=False) + " " + df["interests"].str.replace(";", " ", regex=False)).tolist()
         non_empty = [c for c in corpus if c.strip()]
         if not non_empty:
-            # Give a diagnostic that actually points at the real cause,
-            # instead of letting this fall through to TfidfVectorizer's
-            # generic "empty vocabulary" ValueError.
             raise ValueError(
                 f"no skills/interests text found in {len(df)} row(s) — got "
                 f"columns {list(df.columns)}; the downloaded CSV likely "
@@ -538,7 +414,6 @@ def load_extended_career_index():
 
     index = _merge_static_fallback(index)
 
-    # Cache locally for future runs (best-effort)
     try:
         os.makedirs(os.path.dirname(EXTENDED_INDEX_CACHE_PATH), exist_ok=True)
         joblib.dump(index, EXTENDED_INDEX_CACHE_PATH)
@@ -549,9 +424,6 @@ def load_extended_career_index():
 
 
 def recommend_extended_careers(index, skills_selected, interests_selected, exclude_careers=(), top_n=4):
-    """Fuzzy-match the user's skills/interests against the extended dataset
-    and return the best new career suggestions not already covered by the
-    trained classifier's own class list."""
     from sklearn.metrics.pairwise import cosine_similarity
 
     if not index or (not skills_selected and not interests_selected):
@@ -724,13 +596,6 @@ ALL_JOB_ROLES = sorted(set(JOB_ROLES) | set(JOB_ROLE_INFO.keys()))
 # ---------------------------------------------------------------------------
 # Certification / course recommendations
 # ---------------------------------------------------------------------------
-# Curated, real, well-known certifications and courses per career. Kept as a
-# static in-app table (same philosophy as STATIC_CAREER_PROFILES above) so
-# it never depends on a network call or the extended Drive dataset. Links
-# point at stable top-level program pages, never deep/guessed URLs. Any
-# career with fewer than 2 curated entries — or not in this table at all,
-# e.g. a custom-typed "Other" role — is padded out with generic Coursera /
-# LinkedIn Learning search links via get_certifications_for_career() below.
 CERTIFICATION_RECOMMENDATIONS = {
     "Software Engineer": [
         {"title": "Meta Back-End Developer Professional Certificate", "provider": "Coursera (Meta)", "url": "https://www.coursera.org/professional-certificates/meta-back-end-developer"},
@@ -973,11 +838,6 @@ CERTIFICATION_RECOMMENDATIONS = {
 
 
 def _generic_cert_links(career):
-    """Never-fabricated fallback: real, working search pages on well-known
-    learning platforms, built from the career name itself rather than a
-    guessed deep link. Used to pad out curated entries below 2, and as the
-    sole source for careers with no curated table entry at all (including
-    a custom-typed "Other" role)."""
     q = quote(str(career))
     return [
         {"title": f"{career} courses & certificates", "provider": "Coursera", "url": f"https://www.coursera.org/search?query={q}"},
@@ -986,9 +846,6 @@ def _generic_cert_links(career):
 
 
 def get_certifications_for_career(career):
-    """Curated certification/course recommendations for a career, padded
-    with generic search links up to at least 2 items. Falls back entirely
-    to generic search links for anything not in the curated table."""
     if not career or not str(career).strip():
         return []
     key = str(career).strip()
@@ -1005,19 +862,6 @@ def get_certifications_for_career(career):
 
 
 def _cert_item_html(cert):
-    """Single-line HTML for one certification card.
-
-    This is the fix for the bug in the screenshot: the old version built
-    each card from an indented multi-line f-string, then joined several of
-    those f-strings back to back with nothing in between. That left a
-    line containing only whitespace between every pair of cards. Streamlit's
-    markdown renderer treats a line starting with 4+ spaces as an indented
-    *code block*, and a whitespace-only line closes off whatever HTML block
-    came before it — so the first card (which opened the HTML block) rendered
-    fine, and every card after it landed inside a fresh, indented block that
-    got treated as literal code instead of markup. Emitting each card as one
-    unindented line, with no blank lines between them, avoids both triggers.
-    """
     title = esc(cert.get("title", ""))
     provider = esc(cert.get("provider", ""))
     url = esc(cert.get("url", ""))
@@ -1032,7 +876,6 @@ def _cert_item_html(cert):
 
 
 def render_certifications(certs, career_label=None):
-    """Render a full cert-grid card block for one career's certifications."""
     certs = [c for c in certs if c.get("url")]
     if not certs:
         return
@@ -1052,9 +895,6 @@ def role_relative_index(job_role, base_role=JOB_ROLE_ANCHOR):
 
 
 def salary_method_note(method, location, job_role):
-    """One short, friendly line explaining how a salary figure was derived
-    when it isn't a direct model prediction. Returns "" for method == "model"
-    (nothing to explain)."""
     if method == "scaled":
         return (
             f"💱 {location} wasn't part of the training data, so this scales "
@@ -1165,7 +1005,7 @@ def predict_career(models, age, education, skills_str, interests_str):
 
     try:
         X_new = X_new_sparse.toarray()
-    except Exception:  # noqa: BLE001
+    except Exception:
         X_new = X_new_sparse
 
     model = models["career_recommendation_model"]
@@ -1305,7 +1145,7 @@ def get_exchange_rates():
             merged = dict(FALLBACK_RATES_FROM_INR)
             merged.update({k: v for k, v in rates.items() if k in CURRENCY_SYMBOLS})
             return merged, True
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return dict(FALLBACK_RATES_FROM_INR), False
 
@@ -1323,31 +1163,17 @@ def format_money(amount, currency):
     return f"{symbol}{amount:,.2f}"
 
 # ---------------------------------------------------------------------------
-# Deliberately separate from everything above: it never touches Models,
-# extended_index, salary_model.joblib, career_recommendation_model.pkl, or
-# any other trained file, so it keeps working even if those fail to load.
-# It DOES reuse ASSISTANT_API_KEY / ASSISTANT_MODEL_CANDIDATES exactly as
-# already resolved above (no new key handling, nothing added/changed there),
-# and it never shares state (history, session context) with the "AI Career
-# Assistant" chat tab — that tab's code and behavior are untouched.
+# Independent AI opinion (using google-genai SDK with timeout)
+# ---------------------------------------------------------------------------
 @st.cache_data(ttl=30 * 60, show_spinner=False)
 def _fetch_independent_ai_opinion(age, education, years, job_role, location, skills_tuple, interests_tuple, currency):
-    """Ask the AI for an independent salary/career opinion, using only its
-    own general knowledge — no trained joblib model, no extended-careers
-    dataset, and no shared chat history with the AI Career Assistant tab.
-    Cached by input combination so repeat clicks with the same profile
-    don't re-spend API quota. Returns (data_dict_or_None, error_or_None).
-    """
     if not ASSISTANT_API_KEY:
         return None, "No API key is configured for the independent AI."
     try:
         from google import genai
         from google.genai import types as genai_types
     except ImportError as exc:
-        return None, (
-            "The `google-genai` package isn't installed in this "
-            f"environment.\n\n{exc}"
-        )
+        return None, f"The `google-genai` package isn't installed: {exc}"
 
     skills_list = list(skills_tuple)
     interests_list = list(interests_tuple)
@@ -1382,39 +1208,27 @@ commentary before or after) with exactly these keys:
   rating how well that career fits THIS candidate's profile (skills,
   interests, education, experience), and a one-sentence "why" string
 """
-    # 20s per attempt: without an explicit timeout the SDK falls back to a
-    # very long (effectively unbounded on some networks) default, which is
-    # what made this look like it was "buffering forever" — the app was
-    # just stuck waiting on one hung HTTP call instead of failing fast and
-    # moving on to the next fallback model.
     client = genai.Client(
         api_key=ASSISTANT_API_KEY,
-        http_options=genai_types.HttpOptions(timeout=20_000),
+        http_options=genai_types.HttpOptions(timeout=ASSISTANT_CALL_TIMEOUT_S * 1000),
     )
     last_exc = None
     for candidate in ASSISTANT_MODEL_CANDIDATES:
         try:
-            response = _call_with_hard_timeout(
-                lambda c=candidate: client.models.generate_content(model=c, contents=prompt)
-            )
+            response = client.models.generate_content(model=candidate, contents=prompt)
             raw_text = (response.text or "").strip()
             cleaned = re.sub(r"^```(?:json)?|```$", "", raw_text, flags=re.MULTILINE).strip()
             data = json.loads(cleaned)
             if not isinstance(data, dict):
                 raise ValueError("response JSON wasn't an object")
             return data, None
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             last_exc = exc
             continue
-    return None, str(last_exc)
+    return None, f"All model attempts failed. Last error: {last_exc}"
 
 
 def _extract_ai_numeric_range(data):
-    """Pull a usable (min_inr, max_inr) tuple of floats out of the
-    independent AI's response. Returns (None, None) if the fields are
-    missing, non-numeric, zero/negative, or inverted — callers treat that
-    as "no AI override available" and fall back to the trained model
-    instead of trusting a malformed number."""
     if not isinstance(data, dict):
         return None, None
     try:
@@ -1428,9 +1242,6 @@ def _extract_ai_numeric_range(data):
 
 
 def _ai_top_career(data):
-    """First usable career name from the AI's recommended_careers list, or
-    None. Used to override the headline 'Top Career Match' when the AI
-    opinion is available."""
     if not isinstance(data, dict):
         return None
     for item in data.get("recommended_careers", []) or []:
@@ -1442,13 +1253,6 @@ def _ai_top_career(data):
 
 
 def _ai_career_matches(data, top_n=5):
-    """Turn the independent AI's recommended_careers list into the same
-    (career, match_score_0_to_1, extra) shape blended_career_matches()
-    returns, so the 'Career Matches' panel can be driven by the AI's own
-    ranking instead of (or alongside) the trained classifier + coverage
-    blend. Ranked by the AI's own match_score when present, otherwise by
-    the order the AI listed them in. Returns [] if nothing usable came
-    back, so callers can fall back to the ML ranking."""
     if not isinstance(data, dict):
         return []
     items = data.get("recommended_careers", []) or []
@@ -1464,8 +1268,6 @@ def _ai_career_matches(data, top_n=5):
             score = float(item.get("match_score"))
             score = max(0.0, min(score, 100.0)) / 100.0
         except (TypeError, ValueError):
-            # No usable score from the AI — fall back to a rank-based
-            # score so earlier list positions still score higher.
             score = max(0.95 - position * 0.12, 0.4)
         parsed.append((career, score, why))
     parsed.sort(key=lambda x: -x[1])
@@ -1473,12 +1275,6 @@ def _ai_career_matches(data, top_n=5):
 
 
 def render_ai_opinion_card(data, error, badge_text="AI estimate", note=None):
-    """Pure rendering of the independent-AI card from already-fetched
-    data/error — kept separate from the fetch itself so a caller can fetch
-    the AI's opinion once, decide whether to use its numbers as the
-    headline prediction, and still show this exact card. `note`, if given,
-    is an extra st.success line about how the result is being used
-    elsewhere on the page (e.g. "used as the headline estimate below")."""
     if not ASSISTANT_API_KEY:
         return
 
@@ -1493,11 +1289,12 @@ def render_ai_opinion_card(data, error, badge_text="AI estimate", note=None):
 
     if error or not data:
         if error:
-            print(f"[Independent AI opinion] request failed: {error}")
-        st.info(
-            "The AI estimate isn't available right now — showing the "
-            "trained model's prediction instead."
-        )
+            st.error(f"AI error: {error}")
+        else:
+            st.info(
+                "The AI estimate isn't available right now — showing the "
+                "trained model's prediction instead."
+            )
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
@@ -1526,10 +1323,6 @@ def render_ai_opinion_card(data, error, badge_text="AI estimate", note=None):
 
 
 def fetch_and_render_ai_opinion(age, education, years, job_role, location, skills_selected, interests_selected, display_currency, badge_text=None, note=None):
-    """Fetch the independent AI opinion and render it in one call (the
-    original all-in-one entry point). Returns (data, error) so callers that
-    need the fetched values for something else (e.g. overriding the ML
-    prediction) don't have to fetch a second time."""
     if not ASSISTANT_API_KEY:
         return None, None
     with st.spinner("Getting an AI-powered estimate…"):
@@ -1998,14 +1791,7 @@ LIVE_BENCHMARK_REFRESH_SECONDS = 5
 
 
 def _render_live_benchmark_box():
-    """Draws one random profile and renders the sidebar benchmark box.
-
-    Wrapped below in st.fragment(run_every=...), so THIS FUNCTION ALONE
-    reruns on its own timer, independent of anything else happening on
-    the page — typing in the salary form, switching pages, etc. no longer
-    has to happen for the benchmark to move, and typing in the form is no
-    longer interrupted by the benchmark's rerun either, since only this
-    fragment (not the whole app) reruns each tick."""
+    """Draws one random profile and renders the sidebar benchmark box."""
     _baseline_years = random.choice([0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20])
     _baseline_edu = random.choice(EDUCATION_LEVELS)
     _baseline_loc = random.choice(LOCATIONS)
@@ -2036,20 +1822,12 @@ def _render_live_benchmark_box():
     )
 
 
-# st.fragment(run_every=...) needs Streamlit >= 1.35. Where it's available,
-# this box ticks over on its own timer even if the user never touches
-# anything else. On older Streamlit versions it falls back to the
-# original behavior — a fresh random profile on every full-app rerun
-# (widget interaction, page reload) — instead of raising an error.
 if hasattr(st, "fragment"):
     try:
         _render_live_benchmark_box = st.fragment(run_every=LIVE_BENCHMARK_REFRESH_SECONDS)(
             _render_live_benchmark_box
         )
     except TypeError:
-        # st.fragment exists but this older version doesn't accept
-        # run_every — still isolate the rerun to this box, just without
-        # the standalone timer.
         _render_live_benchmark_box = st.fragment(_render_live_benchmark_box)
 
 with st.sidebar:
@@ -2080,7 +1858,7 @@ with st.sidebar:
     if MODELS_OK:
         try:
             _render_live_benchmark_box()
-        except Exception:  # noqa: BLE001 — sidebar insight is best-effort
+        except Exception:
             pass
 
     st.markdown(
@@ -2170,30 +1948,20 @@ if page == "Dashboard":
             st.warning("Pick at least one skill and one interest to get a career recommendation.")
         else:
             # -----------------------------------------------------------
-            # The independent AI opinion is fetched and displayed FIRST.
-            # When it returns a usable numeric range, its salary estimate
-            # and top career pick become the headline prediction for the
-            # rest of this page — overriding the trained joblib models.
-            # The trained models still run underneath regardless (so
-            # there's always a fallback if the AI call fails or returns
-            # something unparseable), and their own numbers are shown
-            # afterward in a clearly-labeled "for comparison" expander
-            # instead of driving the headline figures.
+            # Fetch AI opinion (with error shown in the UI if it fails)
             # -----------------------------------------------------------
-            with st.spinner("Predicting salary and Recommending better career path...."):
+            with st.spinner("Predicting salary and recommending better career path…"):
                 ai_data, ai_error = _fetch_independent_ai_opinion(
                     age, education, years, job_role, location,
                     tuple(skills_selected), tuple(interests_selected), display_currency,
                 )
+            if ai_error:
+                st.error(f"AI opinion failed: {ai_error}")
             ai_min_inr, ai_max_inr = _extract_ai_numeric_range(ai_data)
             ai_career = _ai_top_career(ai_data)
             ai_override_active = ai_min_inr is not None and ai_max_inr is not None
-            # Note: the independent AI opinion is used silently to sharpen the
-            # headline numbers below when it returns something usable — it is
-            # not surfaced as its own separate, labeled "second opinion" card.
 
-            # Trained joblib models still run regardless of the AI result —
-            # this is both the fallback source and the comparison figure.
+            # Trained joblib models still run regardless of the AI result
             ml_salary_inr, salary_method = predict_salary_full(Models, years, education, job_role, location)
             avg_reference_inr = reference_average_salary(Models, years, education, location)
 
@@ -2203,10 +1971,7 @@ if page == "Dashboard":
             )
             ml_top_career = blended_matches[0][0] if blended_matches else "N/A"
 
-            # The Career Matches panel is ranked using the independent AI's
-            # own opinion whenever it returns usable picks — the trained
-            # classifier + coverage blend (blended_matches) becomes the
-            # fallback used only when the AI didn't return anything usable.
+            # Use AI matches if available, else fallback
             ai_matches = _ai_career_matches(ai_data, top_n=5) if ai_data else []
             if ai_matches:
                 career_matches_for_display = ai_matches
@@ -2372,11 +2137,6 @@ if page == "Dashboard":
             st.markdown("##### Career Growth Trend")
             g_years, g_salaries_inr = salary_growth_curve(Models, education, job_role, location, max_years=20, step=1)
             if ai_override_active and ml_salary_inr:
-                # Rescale the trained model's growth curve (which has the
-                # shape of how salary moves with experience) so it passes
-                # through the AI's headline figure at the selected years of
-                # experience — keeps the AI's number authoritative while
-                # still showing a plausible growth trajectory around it.
                 scale_factor = salary_inr / ml_salary_inr
                 g_salaries_inr = [s * scale_factor for s in g_salaries_inr]
             g_salaries_disp = [convert_from_inr(s, display_currency, rates) for s in g_salaries_inr]
@@ -2407,9 +2167,7 @@ if page == "Dashboard":
             st.markdown("</div>", unsafe_allow_html=True)
 
             # -----------------------------------------------------------
-            # Certification / course recommendations, tied to the top
-            # career match (and, when it differs, the runner-up) so the
-            # suggestions actually reflect what was just recommended.
+            # Certification / course recommendations
             # -----------------------------------------------------------
             cert_careers = [top_career]
             if career_matches_for_display:
@@ -2459,12 +2217,7 @@ if page == "Dashboard":
                     st.markdown(req_pills, unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
             # -----------------------------------------------------------------
-            # Trained model's own prediction, kept visible as a secondary,
-            # clearly-labeled comparison figure. The independent AI opinion
-            # was already fetched and shown at the very top of this section;
-            # its numbers (when usable) drive every headline figure above —
-            # this expander is the trained joblib models' unmodified output,
-            # so nothing about their behavior is hidden, only de-emphasized.
+            # Trained model's own prediction, kept visible as a secondary
             # -----------------------------------------------------------------
             with st.expander("📐 Trained model's own prediction (for comparison)"):
                 ml_salary_disp = convert_from_inr(ml_salary_inr, display_currency, rates)
@@ -2589,60 +2342,55 @@ elif page == "AI Career Assistant":
                 placeholder = st.empty()
                 placeholder.markdown("Thinking…")
                 reply = None
+                error_detail = None
 
                 try:
                     from google import genai
                     from google.genai import types as genai_types
                 except ImportError as exc:
-                    print(f"[AI Career Assistant] google-genai not installed: {exc}")
-                    reply = "Sorry, I couldn't reach the assistant right now. Please try again in a moment."
+                    error_detail = f"google-genai not installed: {exc}"
+                    reply = f"Sorry, I couldn't reach the assistant right now. Error: {error_detail}"
 
                 if reply is None:
-                    # Same fix as the salary-estimate path: pin a per-request
-                    # timeout so a slow/unreachable candidate model fails
-                    # fast and the loop below moves on to the next one,
-                    # instead of the chat sitting on "Thinking…" forever.
-                    client = genai.Client(
-                        api_key=ASSISTANT_API_KEY,
-                        http_options=genai_types.HttpOptions(timeout=20_000),
-                    )
-                    history = [
-                        genai_types.Content(
-                            role="user" if m["role"] == "user" else "model",
-                            parts=[genai_types.Part.from_text(text=m["content"])],
+                    try:
+                        client = genai.Client(
+                            api_key=ASSISTANT_API_KEY,
+                            http_options=genai_types.HttpOptions(timeout=ASSISTANT_CALL_TIMEOUT_S * 1000),
                         )
-                        for m in st.session_state["chat_messages"][:-1]
-                    ]
-                    system_ctx = build_system_context()
-                    last_exc = None
-                    # Cache whichever candidate model name actually worked, so
-                    # later turns don't re-probe every candidate from scratch.
-                    model_order = st.session_state.get(
-                        "_working_gemini_model", ASSISTANT_MODEL_CANDIDATES
-                    )
-                    if isinstance(model_order, str):
-                        model_order = [model_order] + [m for m in ASSISTANT_MODEL_CANDIDATES if m != model_order]
-                    for candidate in model_order:
-                        try:
-                            chat = client.chats.create(
-                                model=candidate,
-                                config=genai_types.GenerateContentConfig(system_instruction=system_ctx),
-                                history=history,
+                        history = [
+                            genai_types.Content(
+                                role="user" if m["role"] == "user" else "model",
+                                parts=[genai_types.Part.from_text(text=m["content"])],
                             )
-                            response = _call_with_hard_timeout(lambda c=chat: c.send_message(user_msg))
-                            reply = response.text
-                            st.session_state["_working_gemini_model"] = candidate
-                            break
-                        except Exception as exc:  # noqa: BLE001
-                            last_exc = exc
-                            continue
-
-                    if reply is None:
-                        # The real error is only useful to whoever runs this
-                        # deployment — log it server-side rather than showing
-                        # a stack trace to the person chatting.
-                        print(f"[AI Career Assistant] request failed: {last_exc}")
-                        reply = "Sorry, I couldn't reach the assistant right now. Please try again in a moment."
+                            for m in st.session_state["chat_messages"][:-1]
+                        ]
+                        system_ctx = build_system_context()
+                        last_exc = None
+                        model_order = st.session_state.get(
+                            "_working_gemini_model", ASSISTANT_MODEL_CANDIDATES
+                        )
+                        if isinstance(model_order, str):
+                            model_order = [model_order] + [m for m in ASSISTANT_MODEL_CANDIDATES if m != model_order]
+                        for candidate in model_order:
+                            try:
+                                chat = client.chats.create(
+                                    model=candidate,
+                                    config=genai_types.GenerateContentConfig(system_instruction=system_ctx),
+                                    history=history,
+                                )
+                                response = chat.send_message(user_msg)
+                                reply = response.text
+                                st.session_state["_working_gemini_model"] = candidate
+                                break
+                            except Exception as exc:
+                                last_exc = exc
+                                continue
+                        if reply is None:
+                            error_detail = f"All models failed. Last error: {last_exc}"
+                            reply = f"Sorry, I couldn't reach the assistant right now. Error: {error_detail}"
+                    except Exception as exc:
+                        error_detail = str(exc)
+                        reply = f"Sorry, I couldn't reach the assistant right now. Error: {error_detail}"
 
                 placeholder.markdown(reply)
             st.session_state["chat_messages"].append({"role": "assistant", "content": reply})
