@@ -23,19 +23,12 @@ st.set_page_config(
 
 
 def _resolve_assistant_api_key():
-    """Prefer st.secrets / an env var over a key hard-coded in source.
+    """Read the Gemini API key from Streamlit secrets or the environment.
 
-    A real API key sitting in a .py file is a security problem on its own,
-    but it's *also* the most likely reason the assistant is failing here:
-    if this file (or a copy of it) was ever pushed to a public GitHub repo,
-    Google's automated secret scanning typically finds and revokes keys
-    like this within minutes to hours — which produces exactly this
-    symptom (every call fails, no visible reason) with no code bug at all.
-
-    If you're seeing this after pushing to GitHub, treat the key below as
-    burned: generate a fresh one in Google AI Studio, revoke the old one,
-    and put the new one in `.streamlit/secrets.toml` (as GEMINI_API_KEY) or
-    in your host's environment variables — not back in this file.
+    Keeping the key out of source is intentional: a key committed to a repo
+    gets auto-revoked by GitHub/Google secret scanning, which silently
+    breaks every AI feature with no visible cause. Set GEMINI_API_KEY in
+    `.streamlit/secrets.toml` or as an environment variable instead.
     """
     try:
         key = st.secrets.get("GEMINI_API_KEY")
@@ -43,11 +36,7 @@ def _resolve_assistant_api_key():
             return key
     except Exception:
         pass
-    key = os.environ.get("GEMINI_API_KEY")
-    if key:
-        return key
-    # Last-resort fallback so the app keeps working today; rotate this key.
-    return "AIzaSyBFuGLVqKL8tNZnYX4a-RqZm9PfQQfeUXE"
+    return os.environ.get("GEMINI_API_KEY")
 
 
 ASSISTANT_API_KEY = _resolve_assistant_api_key()
@@ -692,6 +681,31 @@ def role_relative_index(job_role, base_role=JOB_ROLE_ANCHOR):
     return val / base if base else 1.0
 
 
+def salary_method_note(method, location, job_role):
+    """One short, friendly line explaining how a salary figure was derived
+    when it isn't a direct model prediction. Returns "" for method == "model"
+    (nothing to explain)."""
+    if method == "scaled":
+        return (
+            f"💱 {location} wasn't part of the training data, so this scales "
+            f"the India-based estimate by {location}'s pay level "
+            f"(~{country_relative_index(location):.2f}× India's)."
+        )
+    if method == "role_scaled":
+        return (
+            f"🧭 {job_role} wasn't part of the training data, so this scales "
+            f"the {JOB_ROLE_ANCHOR} estimate by {job_role}'s typical pay level "
+            f"(~{role_relative_index(job_role):.2f}× {JOB_ROLE_ANCHOR})."
+        )
+    if method == "role_and_location_scaled":
+        return (
+            f"🧭💱 Neither {job_role} nor {location} were part of the training "
+            f"data, so this chains two scalings from the {JOB_ROLE_ANCHOR}/"
+            f"India baseline — treat it as a rougher estimate."
+        )
+    return ""
+
+
 def predict_salary_full(models, years_experience, education_level, job_role, location):
     if job_role in JOB_ROLES:
         return predict_salary_for_country(models, years_experience, education_level, job_role, location)
@@ -1044,31 +1058,32 @@ def _ai_top_career(data):
     return None
 
 
-def render_ai_opinion_card(data, error, badge_text="Independent AI · not from trained files", note=None):
+def render_ai_opinion_card(data, error, badge_text="AI second opinion", note=None):
     """Pure rendering of the independent-AI card from already-fetched
     data/error — kept separate from the fetch itself so the Dashboard can
     fetch the AI's opinion once, decide whether to use its numbers as the
     headline prediction, and still show this exact card. `note`, if given,
-    is an extra st.info/st.success line about how the result is being used
-    elsewhere on the page (e.g. "used as the headline prediction below")."""
-    st.markdown('<div class="ai-card">', unsafe_allow_html=True)
-    st.markdown(f'<span class="ai-badge">{badge_text}</span>', unsafe_allow_html=True)
-    st.markdown("##### 🧠 Independent AI Salary & Career Opinion")
-    st.caption(
-        "A second opinion from a general-purpose AI reasoning from its own "
-        "knowledge — separate from the joblib-trained salary/career models "
-        "below, so it keeps working even if those model files fail to load."
-    )
-
+    is an extra st.success line about how the result is being used
+    elsewhere on the page (e.g. "used as the headline estimate below")."""
     if not ASSISTANT_API_KEY:
-        st.info("This independent AI opinion isn't configured — no API key is available.")
-        st.markdown("</div>", unsafe_allow_html=True)
         return
 
+    st.markdown('<div class="ai-card">', unsafe_allow_html=True)
+    st.markdown(f'<span class="ai-badge">{badge_text}</span>', unsafe_allow_html=True)
+    st.markdown("##### 🧠 AI Second Opinion")
+    st.caption(
+        "Gemini's own read on your profile, reasoning from general market "
+        "knowledge rather than this app's trained models — a useful sanity "
+        "check that keeps working even if the model files can't load."
+    )
+
     if error or not data:
-        st.warning("Couldn't get an independent AI opinion right now.")
-        with st.expander("Technical details (visible while debugging — remove for production)"):
-            st.code(error or "Unknown error")
+        if error:
+            print(f"[Independent AI opinion] request failed: {error}")
+        st.info(
+            "The independent AI opinion isn't available right now — showing "
+            "the trained model's prediction instead."
+        )
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
@@ -1076,12 +1091,12 @@ def render_ai_opinion_card(data, error, badge_text="Independent AI · not from t
     reasoning = data.get("reasoning", "")
     careers = data.get("recommended_careers", [])
 
-    st.markdown(f"**Estimated annual salary range:** {salary_range}")
+    st.markdown(f"**Estimated annual salary:** {salary_range}")
     if reasoning:
         st.caption(reasoning)
 
     if careers:
-        st.markdown("**Careers this AI would suggest:**")
+        st.markdown("**Careers Gemini would suggest:**")
         for item in careers[:3]:
             if isinstance(item, dict):
                 career = str(item.get("career", "")).strip()
@@ -1092,11 +1107,7 @@ def render_ai_opinion_card(data, error, badge_text="Independent AI · not from t
     if note:
         st.success(note)
 
-    st.caption(
-        "Generated independently by a general-purpose AI model, not by this "
-        "app's trained files — treat it as a second, rougher reference "
-        "point rather than a precise figure."
-    )
+    st.caption("A rough, independent reference point — not a precise figure.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -1106,16 +1117,15 @@ def fetch_and_render_ai_opinion(age, education, years, job_role, location, skill
     need the fetched values for something else (e.g. overriding the ML
     prediction) don't have to fetch a second time."""
     if not ASSISTANT_API_KEY:
-        render_ai_opinion_card(None, None, badge_text=badge_text or "Independent AI · not from trained files")
         return None, None
-    with st.spinner("Asking the independent AI for its own estimate…"):
+    with st.spinner("Getting a second opinion from Gemini…"):
         data, error = _fetch_independent_ai_opinion(
             age, education, years, job_role, location,
             tuple(skills_selected), tuple(interests_selected), display_currency,
         )
     render_ai_opinion_card(
         data, error,
-        badge_text=badge_text or "Independent AI · not from trained files",
+        badge_text=badge_text or "AI second opinion",
         note=note,
     )
     return data, error
@@ -1123,7 +1133,11 @@ def fetch_and_render_ai_opinion(age, education, years, job_role, location, skill
 
 CSS = """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+
 :root {
+    --font-display: 'Sora', 'Inter', sans-serif;
+    --font-body: 'Inter', sans-serif;
     --navy: #0c1b3a;
     --navy-light: #142a56;
     --bg: #0a1226;
@@ -1285,9 +1299,17 @@ section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked)
     margin-bottom: 18px;
 }
 .block-container [data-testid="stMarkdownContainer"] .app-header h1,
-.app-header h1 { margin: 0; font-size: 1.5rem; color: #ffffff !important; }
+.app-header h1 { margin: 2px 0 0 0; font-size: 1.7rem; font-weight: 800; letter-spacing: -0.01em; color: #ffffff !important; }
 .block-container [data-testid="stMarkdownContainer"] .app-header span.tag,
-.app-header span.tag { color: #9db3ff !important; font-size: 0.85rem; }
+.app-header span.tag { color: #9db3ff !important; font-size: 0.9rem; font-style: italic; }
+.block-container [data-testid="stMarkdownContainer"] .app-header span.eyebrow,
+.app-header span.eyebrow {
+    display: block;
+    color: var(--accent-teal) !important;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+}
 
 .card {
     background: var(--card);
@@ -1383,25 +1405,18 @@ with st.sidebar:
     st.markdown(
         """
         <div class="side-box">
-        <h4>Why This System</h4>
+        <h4>What You Get</h4>
         <ul>
-            <li>AI-powered salary prediction</li>
-            <li>Personalized career suggestions</li>
+            <li>AI-powered salary estimates</li>
+            <li>Personalized career matches</li>
             <li>Location-aware currency conversion</li>
-            <li>Chat with an AI career assistant</li>
+            <li>A chat assistant for follow-up questions</li>
         </ul>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    if MODELS_OK:
-        demand_roles = list(Models["career_label_encoder"].classes_)[:6]
-    else:
-        demand_roles = JOB_ROLES
-    roles_html = "".join(f"<li>{r}</li>" for r in demand_roles)
-
-    benchmark_html = ""
     if MODELS_OK:
         try:
             _baseline_years, _baseline_edu, _baseline_loc = 3, EDUCATION_LEVELS[0], "India"
@@ -1411,45 +1426,53 @@ with st.sidebar:
             }
             _top_role = max(_role_salaries, key=_role_salaries.get)
             _low_role = min(_role_salaries, key=_role_salaries.get)
-            benchmark_html = (
-                f'<p style="margin:8px 0 2px 0;">📈 <b>Live benchmark</b> — '
-                f'{_baseline_years} yrs exp, {_baseline_edu}, {_baseline_loc}:</p>'
-                f'<ul style="margin:0;">'
-                f'<li>Highest predicted: <b>{_top_role}</b> '
-                f'({format_money(_role_salaries[_top_role], "INR")})</li>'
-                f'<li>Lowest predicted: <b>{_low_role}</b> '
-                f'({format_money(_role_salaries[_low_role], "INR")})</li>'
-                f'</ul>'
+            st.markdown(
+                f"""
+                <div class="side-box">
+                <h4>📈 Live Benchmark</h4>
+                <p style="margin:0 0 6px 0;opacity:.85;">{_baseline_years} yrs exp ·
+                {_baseline_edu} · {_baseline_loc}</p>
+                <ul>
+                    <li>Highest: <b>{_top_role}</b>
+                    ({format_money(_role_salaries[_top_role], "INR")})</li>
+                    <li>Lowest: <b>{_low_role}</b>
+                    ({format_money(_role_salaries[_low_role], "INR")})</li>
+                </ul>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
         except Exception:  # noqa: BLE001 — sidebar insight is best-effort
-            benchmark_html = ""
+            pass
 
     st.markdown(
         """
         <div class="side-box disclaimer">
         <h4>Disclaimer</h4>
-        <p style="margin:0;">Estimates come from models trained on historical
-        sample data — treat them as a guidance tool, not exact figures.</p>
+        <p style="margin:0;">Estimates come from models trained on sample
+        data — use them as guidance, not exact figures.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    if st.button("🔄 Refresh data & models from Drive"):
+    if st.button("🔄 Refresh data & models"):
         _clear_cached_data_files()
         st.rerun()
 
 if not MODELS_OK:
-    st.error(
-        "Couldn't load the prediction models, so salary/career predictions "
-        f"are unavailable right now.\n\nDetails: {MODELS_ERROR}"
-    )
+    st.error("Prediction models couldn't be loaded, so estimates aren't available right now.")
+    with st.expander("Technical details"):
+        st.code(MODELS_ERROR or "Unknown error")
 
 st.markdown(
     """
     <div class="app-header">
-        <div><h1>🤖 AI Based Salary Estimation &amp; Career Recommendation</h1></div>
-        <div><span class="tag">Smart Career. Better Future.</span></div>
+        <div>
+            <span class="eyebrow">CAREER INTELLIGENCE</span>
+            <h1>Career &amp; Salary Compass</h1>
+        </div>
+        <div><span class="tag">Know your worth. Find your fit.</span></div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -1457,8 +1480,8 @@ st.markdown(
 
 if page == "Dashboard":
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("Salary Estimation & Career Recommendation")
-    st.caption("Enter your details to get an AI-predicted salary range and career matches.")
+    st.subheader("Tell us about yourself")
+    st.caption("A few details is all it takes for a personalized salary estimate and career matches.")
 
     education_options = (
         list(Models["education_encoder"].categories_[0]) if MODELS_OK else EDUCATION_LEVELS
@@ -1488,28 +1511,26 @@ if page == "Dashboard":
         else:
             location = location_choice
             display_currency = CURRENCY_BY_LOCATION.get(location, "USD")
-            st.caption(f"Currency: **{display_currency}** (auto, based on location)")
+            st.caption(f"Currency: **{display_currency}**, based on location")
     skills_selected = st.multiselect(
-        "Skills", skill_vocab, help="Pick the skills that best describe you — a focused, realistic set "
-        "gives sharper career matches than selecting everything."
+        "Skills", skill_vocab, help="A focused, realistic set of skills gives sharper career "
+        "matches than selecting everything."
     )
     interests_selected = st.multiselect("Interests", interest_vocab)
 
     if (job_role_choice == "Other") or (location_choice == "Other"):
-        st.caption(
-            "⚠️ 'Other' entries may be less reliable."
-        )
+        st.caption("⚠️ Custom entries are matched less precisely than the built-in list.")
 
-    predict_clicked = st.button("Predict Salary & Recommend Careers", type="primary")
+    predict_clicked = st.button("Get My Salary & Career Insights", type="primary")
     st.markdown("</div>", unsafe_allow_html=True)
 
     if predict_clicked and MODELS_OK:
         if job_role_choice == "Other" and not job_role.strip():
-            st.warning("Type a job role.")
+            st.warning("Please type a job role.")
         elif location_choice == "Other" and not location.strip():
-            st.warning("Type a location.")
+            st.warning("Please type a location.")
         elif not skills_selected or not interests_selected:
-            st.warning("Pick at least one skill and one interest for the career recommendation.")
+            st.warning("Pick at least one skill and one interest to get a career recommendation.")
         else:
             # -----------------------------------------------------------
             # The independent AI opinion is fetched and displayed FIRST.
@@ -1522,7 +1543,7 @@ if page == "Dashboard":
             # afterward in a clearly-labeled "for comparison" expander
             # instead of driving the headline figures.
             # -----------------------------------------------------------
-            with st.spinner("Asking the independent AI for its own estimate…"):
+            with st.spinner("Getting a second opinion from Gemini…"):
                 ai_data, ai_error = _fetch_independent_ai_opinion(
                     age, education, years, job_role, location,
                     tuple(skills_selected), tuple(interests_selected), display_currency,
@@ -1533,12 +1554,12 @@ if page == "Dashboard":
 
             render_ai_opinion_card(
                 ai_data, ai_error,
-                badge_text="Independent AI · primary estimate",
+                badge_text="AI second opinion · used as headline",
                 note=(
-                    "Using this AI estimate as the headline prediction below."
+                    "Using this estimate as the headline prediction below."
                     if ai_override_active else
-                    "Couldn't parse a usable numeric range from the AI's reply, "
-                    "so the trained model's prediction is used as the headline "
+                    "Couldn't parse a usable range from the AI's reply, so "
+                    "the trained model's prediction is used as the headline "
                     "below instead."
                 ),
             )
@@ -1583,8 +1604,8 @@ if page == "Dashboard":
                 "ml_salary_inr": ml_salary_inr, "ml_top_career": ml_top_career,
             }
 
-            source_label = "Independent AI" if ai_override_active else "Trained model (AI unavailable)"
-            st.caption(f"Headline numbers below are sourced from: **{source_label}**.")
+            source_label = "Gemini's AI second opinion" if ai_override_active else "the trained model (AI opinion unavailable)"
+            st.caption(f"The figures below come from **{source_label}**.")
 
             c1, c2, c3, c4 = st.columns(4)
             for col, cls, label, value in [
@@ -1633,42 +1654,22 @@ if page == "Dashboard":
                     font=dict(color="#eef1fb"),
                 )
                 st.plotly_chart(fig, use_container_width=True)
-                st.markdown(f"Market position: **<span style='color:{pos_color} !important'>{position}</span>** (vs. average across trained job roles for this profile)", unsafe_allow_html=True)
+                st.markdown(f"Market position: **<span style='color:{pos_color} !important'>{position}</span>** vs. peers with a similar profile", unsafe_allow_html=True)
                 if ai_override_active:
                     st.caption(
-                        "💡 This range comes from the independent AI's own reasoning "
-                        "(card above) — see the '📐 Trained model's own prediction' "
-                        "section below for the joblib model's separate figure."
+                        "💡 From the AI second opinion above — see 'Trained model's "
+                        "own prediction' below for the joblib model's figure."
                     )
-                elif salary_method == "scaled":
-                    st.caption(
-                        f"💱 {location} isn't one of the model's trained locations "
-                        f"(India/UK/USA/Remote), so this is the India-based prediction "
-                        f"scaled by {location}'s average-salary level (~"
-                        f"{country_relative_index(location):.2f}× India's)."
-                    )
-                elif salary_method == "role_scaled":
-                    st.caption(
-                        f"🧭 {job_role} isn't one of the model's trained job roles "
-                        f"({', '.join(JOB_ROLES)}), so this is the {location} prediction for "
-                        f"{JOB_ROLE_ANCHOR} scaled by {job_role}'s typical pay level (~"
-                        f"{role_relative_index(job_role):.2f}× {JOB_ROLE_ANCHOR})."
-                    )
-                elif salary_method == "role_and_location_scaled":
-                    st.caption(
-                        f"🧭💱 Both {job_role} and {location} are outside what the model was "
-                        f"trained on, so this prediction chains two scalings: the India-based "
-                        f"{JOB_ROLE_ANCHOR} estimate scaled by {location}'s average-salary level "
-                        f"(~{country_relative_index(location):.2f}× India's) and then by "
-                        f"{job_role}'s typical pay level (~{role_relative_index(job_role):.2f}× "
-                        f"{JOB_ROLE_ANCHOR}). Treat this as a rougher estimate than a single scaling."
-                    )
+                else:
+                    method_note = salary_method_note(salary_method, location, job_role)
+                    if method_note:
+                        st.caption(method_note)
                 if not live_rates:
-                    st.caption("Using offline exchange-rate estimates (live FX lookup unavailable).")
+                    st.caption("Using offline exchange-rate estimates — live FX lookup is unavailable.")
                 st.markdown("</div>", unsafe_allow_html=True)
 
                 st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.markdown("##### Salary Range Visualization")
+                st.markdown("##### Salary Range")
                 bar_fig = go.Figure(go.Bar(
                     x=["Min", "Avg", "Max"],
                     y=[min_disp, salary_disp, max_disp],
@@ -1689,41 +1690,33 @@ if page == "Dashboard":
 
             with right:
                 st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.markdown("##### Trained Model Career Matches")
+                st.markdown("##### Career Matches")
                 if ai_override_active:
                     st.caption(
-                        f"The headline **Top Career Match** chip above uses the "
-                        f"independent AI's pick (**{top_career}**). This list is the "
-                        "trained classifier + content-matching model's own ranking, "
-                        "shown separately for comparison."
+                        f"The **Top Career Match** chip above uses the AI's pick "
+                        f"(**{top_career}**). This ranking is the trained model's "
+                        "own view, shown separately for comparison."
                     )
                 if blended_matches:
                     for career, match_score, clf_prob in blended_matches:
                         st.write(f"**{career}** — {match_score * 100:.0f}% match")
                         st.progress(min(max(float(match_score), 0.0), 1.0))
                     st.caption(
-                        "Match % reflects how much of that career's typical skills/interests "
-                        "you've selected (not diluted by unrelated tags you also picked), with "
-                        "the trained classifier's confidence used to rank ties. Cover most of a "
-                        "career's skillset and its match can genuinely reach 80-90%+."
+                        "Match % reflects how much of that career's typical skills and "
+                        "interests you selected. Cover most of a career's skillset and "
+                        "the match can reach 80–90%+."
                     )
                 else:
-                    st.info("No career matches found for this combination of skills/interests.")
+                    st.info("No career matches yet — try picking a few more skills or interests.")
                 st.markdown("</div>", unsafe_allow_html=True)
 
-                st.markdown('<div class="card">', unsafe_allow_html=True)
-                st.markdown("##### Skill & Interest Tag Library")
-                tags_html = "".join(
-                    f'<span class="pill match">{s}</span>' if s in skills_selected else f'<span class="pill">{s}</span>'
-                    for s in skill_vocab
-                )
-                st.markdown(tags_html, unsafe_allow_html=True)
-                st.caption(
-                    "Highlighted pills are the skills you selected. All of these feed the "
-                    "broader career-matching dataset; only the subset the classifier was "
-                    "originally trained on also shapes its raw probability directly."
-                )
-                st.markdown("</div>", unsafe_allow_html=True)
+                with st.expander(f"🏷️ Browse all {len(skill_vocab)} skill tags"):
+                    tags_html = "".join(
+                        f'<span class="pill match">{s}</span>' if s in skills_selected else f'<span class="pill">{s}</span>'
+                        for s in skill_vocab
+                    )
+                    st.markdown(tags_html, unsafe_allow_html=True)
+                    st.caption("Highlighted pills are the skills you selected above.")
 
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.markdown("##### Career Growth Trend")
@@ -1753,14 +1746,13 @@ if page == "Dashboard":
             st.plotly_chart(growth_fig, use_container_width=True)
             if ai_override_active:
                 st.caption(
-                    "Trained model's growth shape, rescaled to pass through the "
-                    "independent AI's headline estimate at your selected experience "
-                    "level — a projection, not a guarantee."
+                    "The trained model's growth shape, rescaled to match the AI's "
+                    "estimate at your experience level — a projection, not a guarantee."
                 )
             else:
                 st.caption(
-                    "Projected by holding education, job role, and location fixed and "
-                    "varying years of experience — a model projection, not a guarantee."
+                    "Projected by varying years of experience with everything else "
+                    "held fixed — a model projection, not a guarantee."
                 )
             st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1772,10 +1764,7 @@ if page == "Dashboard":
             if extra_matches:
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.markdown("##### More Careers Worth Exploring")
-                st.caption(
-                    "Matched from a broader career dataset by skill/interest overlap — "
-                    "roles outside the trained model's core class list."
-                )
+                st.caption("Matched by skill and interest overlap, beyond the model's core role list.")
                 for career, score, row in extra_matches:
                     salary_disp_extra = convert_from_inr(float(row["avg_salary_inr"]), display_currency, rates)
                     st.markdown(
@@ -1799,44 +1788,20 @@ if page == "Dashboard":
             # -----------------------------------------------------------------
             with st.expander("📐 Trained model's own prediction (for comparison)"):
                 ml_salary_disp = convert_from_inr(ml_salary_inr, display_currency, rates)
-                st.markdown(f"**Trained model salary estimate:** {format_money(ml_salary_disp, display_currency)}")
-                st.markdown(f"**Trained model top career match:** {ml_top_career}")
-                if salary_method == "scaled":
-                    st.caption(
-                        f"💱 {location} isn't one of the model's trained locations "
-                        f"(India/UK/USA/Remote), so this is the India-based prediction "
-                        f"scaled by {location}'s average-salary level (~"
-                        f"{country_relative_index(location):.2f}× India's)."
-                    )
-                elif salary_method == "role_scaled":
-                    st.caption(
-                        f"🧭 {job_role} isn't one of the model's trained job roles "
-                        f"({', '.join(JOB_ROLES)}), so this is the {location} prediction for "
-                        f"{JOB_ROLE_ANCHOR} scaled by {job_role}'s typical pay level (~"
-                        f"{role_relative_index(job_role):.2f}× {JOB_ROLE_ANCHOR})."
-                    )
-                elif salary_method == "role_and_location_scaled":
-                    st.caption(
-                        f"🧭💱 Both {job_role} and {location} are outside what the model was "
-                        f"trained on, so this prediction chains two scalings: the India-based "
-                        f"{JOB_ROLE_ANCHOR} estimate scaled by {location}'s average-salary level "
-                        f"(~{country_relative_index(location):.2f}× India's) and then by "
-                        f"{job_role}'s typical pay level (~{role_relative_index(job_role):.2f}× "
-                        f"{JOB_ROLE_ANCHOR}). Treat this as a rougher estimate than a single scaling."
-                    )
+                st.markdown(f"**Salary estimate:** {format_money(ml_salary_disp, display_currency)}")
+                st.markdown(f"**Top career match:** {ml_top_career}")
+                method_note = salary_method_note(salary_method, location, job_role)
+                if method_note:
+                    st.caption(method_note)
                 if ai_override_active:
                     st.caption(
-                        "Shown for comparison only — the independent AI's estimate at "
-                        "the top of this page is being used as the headline prediction."
+                        "Shown for comparison only — the AI second opinion above is "
+                        "used as the headline prediction."
                     )
 
     elif predict_clicked and not MODELS_OK:
-        st.error("Models aren't loaded, so a prediction can't be made right now.")
-        st.caption(
-            "The trained-model prediction is unavailable, but you can still try "
-            "the independent AI estimate below — it doesn't depend on the "
-            "joblib model files at all."
-        )
+        st.error("The trained model isn't available right now, so a full prediction can't run.")
+        st.caption("You can still get a quick estimate from the AI second opinion below.")
         fetch_and_render_ai_opinion(
             age=age, education=education, years=years, job_role=job_role,
             location=location, skills_selected=skills_selected,
@@ -1844,97 +1809,10 @@ if page == "Dashboard":
             display_currency=CURRENCY_BY_LOCATION.get(location, "USD"),
         )
 
-    with st.expander("🔍 Why aren't my results changing? (model sensitivity check)"):
-        st.caption(
-            "This calls the real loaded models across a few different inputs so "
-            "you can see, directly, how much (if at all) each input actually "
-            "moves the prediction — nothing here is simulated."
-        )
-        if not MODELS_OK:
-            st.warning("Models aren't loaded, so this check can't run.")
-        else:
-            diag_years, diag_edu = 3, education_options[0]
-            salary_rows = []
-            for r in JOB_ROLES:
-                for loc in LOCATIONS:
-                    s_val, s_method = predict_salary_full(Models, diag_years, diag_edu, r, loc)
-                    salary_rows.append(
-                        {"Job Role": r, "Location": loc, "Predicted Salary (INR)": round(s_val), "Method": s_method}
-                    )
-            salary_diag_df = pd.DataFrame(salary_rows)
-            st.markdown(
-                f"**Salary model** — fixed profile ({diag_years} yrs exp, {diag_edu}), "
-                "every trained Job Role × Location:"
-            )
-            st.dataframe(salary_diag_df, use_container_width=True, hide_index=True)
-            s_min = salary_diag_df["Predicted Salary (INR)"].min()
-            s_max = salary_diag_df["Predicted Salary (INR)"].max()
-            s_mean = salary_diag_df["Predicted Salary (INR)"].mean()
-            if s_mean and (s_max - s_min) < s_mean * 0.02:
-                st.error(
-                    "The salary model itself barely reacts to Job Role or Location for this "
-                    "profile (< 2% spread) — that points to the trained model having weak "
-                    "coefficients on those columns, not to a bug in this app's code. It was "
-                    "likely trained on too small/uniform a sample to learn those effects. "
-                    "Retraining `linear_regression_salary_model.joblib` on a larger, more "
-                    "varied dataset is the real fix."
-                )
-            else:
-                st.success(
-                    f"The salary model does respond to Job Role/Location for this profile "
-                    f"(spread: {format_money(s_min, 'INR')} – {format_money(s_max, 'INR')})."
-                )
-
-            st.markdown("---")
-            st.markdown("**Career model** — same age/education, three very different skill/interest sets:")
-            sample_sets = [
-                (["python", "machine learning", "statistics"], ["ai", "data science"]),
-                (["graphic design", "figma", "ui design"], ["design", "arts"]),
-                (["sales", "negotiation", "communication"], ["marketing", "business"]),
-            ]
-            extended_index_diag = load_extended_career_index()
-            career_rows = []
-            for skl, intr in sample_sets:
-                matches = blended_career_matches(Models, extended_index_diag, 25, diag_edu, skl, intr, top_n=1)
-                top = matches[0][0] if matches else "N/A"
-                career_rows.append({"Skills": ", ".join(skl), "Interests": ", ".join(intr), "Top Career": top})
-            career_diag_df = pd.DataFrame(career_rows)
-            st.dataframe(career_diag_df, use_container_width=True, hide_index=True)
-
-            # load_extended_career_index() now always merges in the bundled,
-            # no-network STATIC_CAREER_PROFILES fallback, so it can no longer
-            # be None — but it's still worth telling you whether the Google
-            # Drive dataset actually loaded, or whether you're running on the
-            # bundled fallback alone (fewer careers, but never "stuck").
-            static_careers = set(STATIC_CAREER_PROFILES.keys())
-            diag_careers = set(extended_index_diag["df"]["career"].astype(str).str.strip()) if extended_index_diag else set()
-            drive_loaded = bool(diag_careers - static_careers)
-            if not drive_loaded:
-                st.warning(
-                    "The Google Drive extended-careers dataset didn't load (see any warning "
-                    "higher up the page) — recommendations are currently running on the "
-                    f"{len(static_careers)}-career fallback dataset bundled in the app itself, "
-                    "instead of your full Drive dataset. Career variety still works (see the "
-                    "table above), just from a smaller pool. Fix the Drive sharing/quota issue "
-                    "to bring back your full dataset."
-                )
-            if len({row["Top Career"] for row in career_rows}) == 1:
-                st.error(
-                    "The top career recommendation is identical across very different "
-                    "skill/interest sets even with career-matching data loaded. That points to "
-                    "a bug in the matching logic itself, not just missing data — worth "
-                    "reporting/investigating further."
-                )
-            else:
-                st.success("The career model does respond to different skills/interests.")
-
 elif page == "AI Career Assistant":
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("AI Career Assistant")
-    st.caption(
-        "Chat about careers, skills, or your predicted salary. Answers are "
-        "grounded in this app's career and skills data."
-    )
+    st.subheader("💬 AI Career Assistant")
+    st.caption("Ask about careers, skills, or your predicted salary — grounded in your latest result.")
     st.markdown("</div>", unsafe_allow_html=True)
 
     if "chat_messages" not in st.session_state:
@@ -1978,10 +1856,7 @@ elif page == "AI Career Assistant":
             st.markdown(msg["content"])
 
     if not ASSISTANT_API_KEY:
-        st.info(
-            "The AI assistant isn't configured yet. Ask the site owner to set "
-            "it up before chatting here."
-        )
+        st.info("The AI assistant isn't set up yet — ask the site owner to add an API key.")
     else:
         user_msg = st.chat_input("Ask about careers, skills, or your predicted salary…")
         if user_msg:
@@ -1993,15 +1868,11 @@ elif page == "AI Career Assistant":
                 placeholder = st.empty()
                 placeholder.markdown("Thinking…")
                 reply = None
-                debug_detail = None
+
                 try:
                     import google.generativeai as genai
                 except ImportError as exc:
-                    debug_detail = (
-                        "ImportError: the `google-generativeai` package isn't installed in "
-                        "this environment. Add `google-generativeai` to requirements.txt and "
-                        f"redeploy.\n\n{exc}"
-                    )
+                    print(f"[AI Career Assistant] google-generativeai not installed: {exc}")
                     reply = "Sorry, I couldn't reach the assistant right now. Please try again in a moment."
 
                 if reply is None:
@@ -2035,64 +1906,38 @@ elif page == "AI Career Assistant":
                             continue
 
                     if reply is None:
-                        # Log the real error server-side, and translate the
-                        # most common failure signatures into an actionable
-                        # hint instead of a generic dead end.
+                        # The real error is only useful to whoever runs this
+                        # deployment — log it server-side rather than showing
+                        # a stack trace to the person chatting.
                         print(f"[AI Career Assistant] request failed: {last_exc}")
-                        msg = str(last_exc)
-                        if any(t in msg for t in ("API_KEY_INVALID", "API key not valid", "401", "PERMISSION_DENIED", "403")):
-                            debug_detail = (
-                                "Auth error: the Gemini API key is invalid, revoked, or lacks "
-                                "access to this model. If this key was ever committed to a "
-                                "public repo, Google likely auto-revoked it — generate a new "
-                                "key in Google AI Studio and store it as GEMINI_API_KEY in "
-                                f"Streamlit secrets.\n\n{msg}"
-                            )
-                        elif any(t in msg for t in ("404", "not found", "NOT_FOUND")):
-                            debug_detail = (
-                                "Model-not-found error: none of "
-                                f"{ASSISTANT_MODEL_CANDIDATES} are available to this API key/"
-                                f"project. Check available model names for your account in "
-                                f"Google AI Studio.\n\n{msg}"
-                            )
-                        elif any(t in msg for t in ("429", "quota", "RESOURCE_EXHAUSTED")):
-                            debug_detail = f"Rate-limit/quota error from the Gemini API.\n\n{msg}"
-                        else:
-                            debug_detail = f"Unhandled error calling the Gemini API.\n\n{msg}"
                         reply = "Sorry, I couldn't reach the assistant right now. Please try again in a moment."
 
                 placeholder.markdown(reply)
-                if debug_detail:
-                    with st.expander("Technical details (visible while debugging — remove for production)"):
-                        st.code(debug_detail)
             st.session_state["chat_messages"].append({"role": "assistant", "content": reply})
 
 else:
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("About This System")
+    st.subheader("ℹ️ How This Works")
     st.markdown(
-        f"""
-- **Career recommendation** — blends two signals: the trained classifier (age, education,
-  skills, interests → a fixed set of career classes) and a content-similarity score against
-  a broader career dataset. Blending lets your full tag selection influence the result, since
-  the classifier alone has to spread its confidence across every class it knows and stays
-  low even for a strong match once there are many possible careers.
-- **Skill & interest tags** — the app offers a wider tag library than the classifier's own
-  training vocabulary; tags outside that vocabulary still feed the content-similarity matcher.
-- **Currency conversion** — predictions are produced in INR, then converted to the currency
-  of the selected country using a live exchange-rate lookup (falling back to fixed
-  approximate rates if that lookup is unavailable).
-- **AI Career Assistant** — a chat assistant grounded in the vocabulary/classes the
-  models were trained on and your most recent in-app prediction.
-- **Independent AI opinion (Dashboard)** — after a prediction, a separate Gemini call
-  (no shared context with the chat assistant, no dependency on the joblib model files)
-  gives its own salary-range and career-fit opinion from general knowledge alone, so you
-  have a second, model-free reference point to compare against the trained-model output.
-
-This is a guidance tool built on a limited sample dataset and approximate national
-salary and job-role pay figures — not a guarantee of real-world salary or career outcomes.
         """
+- **Career matching** blends a trained classifier with a content-similarity search across a
+  broader career dataset, so your full set of skills and interests shapes the result — not
+  just the categories the classifier happens to know.
+- **Skill & interest tags** go beyond the classifier's own vocabulary; anything extra still
+  feeds the similarity matcher.
+- **Currency conversion** predictions are calculated in INR, then converted with a live
+  exchange-rate lookup (falling back to fixed rates if that's unavailable).
+- **AI Career Assistant** is a chat grounded in the model's known roles, skills, and your
+  most recent prediction.
+- **AI second opinion** is a separate Gemini call that reasons from general market
+  knowledge alone — a useful sanity check that works even if the trained models can't load.
+        """
+    )
+    st.markdown(
+        '<p style="opacity:.8;">This is a guidance tool built on sample data and '
+        "approximate salary benchmarks — not a guarantee of real-world outcomes.</p>",
+        unsafe_allow_html=True,
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
-st.markdown('<p class="footer-note">Developed using AI(LLM), Python, Machine Learning &amp; Streamlit</p>', unsafe_allow_html=True)
+st.markdown('<p class="footer-note">Built with Python, scikit-learn, Gemini &amp; Streamlit</p>', unsafe_allow_html=True)
