@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import time
 import json
 import html
 import random
@@ -43,10 +44,51 @@ ASSISTANT_API_KEY = _resolve_assistant_api_key()
 # gemini-1.5-flash / gemini-1.5-pro were retired by Google in Sept 2025 and
 # now 404. Use current stable models, with "gemini-flash-latest" first so
 # this keeps working automatically as Google rolls new stable releases out.
-ASSISTANT_MODEL_CANDIDATES = [ "gemini-3.5-flash", "gemini-2.5-flash","gemini-flash-latest"]
+# Updated Aug 2026: gemini-2.5-flash is slated for shutdown Oct 2026 (still
+# live for now, kept as a fallback); gemini-3.6-flash added as a current,
+# cheaper GA alternative to 3.5 Flash.
+ASSISTANT_MODEL_CANDIDATES = [
+    "gemini-3.5-flash",
+    "gemini-3.6-flash",
+    "gemini-2.5-flash",
+    "gemini-flash-latest",
+]
 
 # Per‑request timeout for Gemini calls has been removed (no timeout override
 # is passed to the SDK, so its own default/no-limit behavior applies).
+
+
+def _is_retryable_gemini_error(exc):
+    """True for transient errors worth retrying on the SAME model (e.g. the
+    '503 UNAVAILABLE ... currently experiencing high demand' overload error
+    Gemini returns during traffic spikes). False for things like a bad/
+    retired model name (404) or a bad API key (401/403), where retrying the
+    same model is pointless and we should move on to the next candidate
+    immediately."""
+    msg = str(exc)
+    return (
+        "503" in msg
+        or "UNAVAILABLE" in msg
+        or "overloaded" in msg.lower()
+        or "high demand" in msg.lower()
+    )
+
+
+def _call_gemini_with_retries(fn, max_retries=2, base_delay=1.5):
+    """Call fn() and retry with backoff on transient 503/overload errors.
+    Non-retryable errors are raised immediately so the caller's per-model
+    loop can move on to the next candidate without wasting time."""
+    last_exc = None
+    for attempt in range(max_retries + 1):
+        try:
+            return fn()
+        except Exception as exc:
+            last_exc = exc
+            if _is_retryable_gemini_error(exc) and attempt < max_retries:
+                time.sleep(base_delay * (attempt + 1))
+                continue
+            raise
+    raise last_exc
 
 
 def semicolon_tokenizer(text):
@@ -1206,9 +1248,11 @@ commentary before or after) with exactly these keys:
     last_exc = None
     for candidate in ASSISTANT_MODEL_CANDIDATES:
         try:
-            response = client.models.generate_content(
-                model=candidate,
-                contents=prompt,
+            response = _call_gemini_with_retries(
+                lambda: client.models.generate_content(
+                    model=candidate,
+                    contents=prompt,
+                )
             )
             raw_text = (response.text or "").strip()
             cleaned = re.sub(r"^```(?:json)?|```$", "", raw_text, flags=re.MULTILINE).strip()
@@ -2364,14 +2408,17 @@ elif page == "AI Career Assistant":
                             model_order = [model_order] + [m for m in ASSISTANT_MODEL_CANDIDATES if m != model_order]
                         for candidate in model_order:
                             try:
-                                chat = client.chats.create(
-                                    model=candidate,
-                                    config=types.GenerateContentConfig(
-                                        system_instruction=system_ctx,
-                                    ),
-                                    history=history,
-                                )
-                                response = chat.send_message(user_msg)
+                                def _send(candidate=candidate):
+                                    chat = client.chats.create(
+                                        model=candidate,
+                                        config=types.GenerateContentConfig(
+                                            system_instruction=system_ctx,
+                                        ),
+                                        history=history,
+                                    )
+                                    return chat.send_message(user_msg)
+
+                                response = _call_gemini_with_retries(_send)
                                 reply = response.text
                                 st.session_state["_working_gemini_model"] = candidate
                                 break
