@@ -46,7 +46,7 @@ def _resolve_assistant_api_key():
 
 ASSISTANT_API_KEY = _resolve_assistant_api_key()
 # Fixed to a single model on purpose — no fallback to other Gemini models.
-ASSISTANT_MODEL_CANDIDATES = ["gemini-2.5-flash"]
+ASSISTANT_MODEL_CANDIDATES = ["gemini-3.5-flash"]
 
 
 def semicolon_tokenizer(text):
