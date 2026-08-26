@@ -74,10 +74,15 @@ def _is_retryable_gemini_error(exc):
     )
 
 
-def _call_gemini_with_retries(fn, max_retries=2, base_delay=1.5):
+def _call_gemini_with_retries(fn, max_retries=3, base_delay=2.0, on_retry=None):
     """Call fn() and retry with backoff on transient 503/overload errors.
     Non-retryable errors are raised immediately so the caller's per-model
-    loop can move on to the next candidate without wasting time."""
+    loop can move on to the next candidate without wasting time.
+
+    on_retry(attempt, max_retries, delay_seconds), if given, is invoked
+    just before each sleep so the UI can tell the user what's happening
+    instead of leaving them staring at a spinner with no explanation.
+    """
     last_exc = None
     for attempt in range(max_retries + 1):
         try:
@@ -85,7 +90,13 @@ def _call_gemini_with_retries(fn, max_retries=2, base_delay=1.5):
         except Exception as exc:
             last_exc = exc
             if _is_retryable_gemini_error(exc) and attempt < max_retries:
-                time.sleep(base_delay * (attempt + 1))
+                delay = base_delay * (attempt + 1)
+                if on_retry:
+                    try:
+                        on_retry(attempt + 1, max_retries, delay)
+                    except Exception:
+                        pass
+                time.sleep(delay)
                 continue
             raise
     raise last_exc
@@ -1245,15 +1256,24 @@ commentary before or after) with exactly these keys:
   interests, education, experience), and a one-sentence "why" string
 """
     client = genai.Client(api_key=ASSISTANT_API_KEY)
+    status_placeholder = st.empty()
     last_exc = None
     for candidate in ASSISTANT_MODEL_CANDIDATES:
         try:
+            def _on_retry(attempt, max_retries, delay, _candidate=candidate):
+                status_placeholder.caption(
+                    f"Google's AI is busy right now — retrying {_candidate} "
+                    f"in {delay:.0f}s… (attempt {attempt}/{max_retries})"
+                )
+
             response = _call_gemini_with_retries(
                 lambda: client.models.generate_content(
                     model=candidate,
                     contents=prompt,
-                )
+                ),
+                on_retry=_on_retry,
             )
+            status_placeholder.empty()
             raw_text = (response.text or "").strip()
             cleaned = re.sub(r"^```(?:json)?|```$", "", raw_text, flags=re.MULTILINE).strip()
             data = json.loads(cleaned)
@@ -1263,6 +1283,7 @@ commentary before or after) with exactly these keys:
         except Exception as exc:
             last_exc = exc
             continue
+    status_placeholder.empty()
     return None, f"All models failed. Last error: {last_exc}"
 
 
@@ -2418,7 +2439,14 @@ elif page == "AI Career Assistant":
                                     )
                                     return chat.send_message(user_msg)
 
-                                response = _call_gemini_with_retries(_send)
+                                def _on_retry(attempt, max_retries, delay, _candidate=candidate):
+                                    placeholder.markdown(
+                                        f"Thinking… Google's AI is busy, retrying "
+                                        f"{_candidate} in {delay:.0f}s (attempt "
+                                        f"{attempt}/{max_retries})"
+                                    )
+
+                                response = _call_gemini_with_retries(_send, on_retry=_on_retry)
                                 reply = response.text
                                 st.session_state["_working_gemini_model"] = candidate
                                 break
